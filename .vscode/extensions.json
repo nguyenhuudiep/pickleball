@@ -1,0 +1,9 @@
+{
+  "recommendations": [
+    "dbaeumer.vscode-eslint",
+    "esbenp.prettier-vscode",
+    "MongoDB.mongodb-vscode",
+    "pranaygp.vscode-css-peek",
+    "ms-vscode.vscode-typescript-next"
+  ]
+}
