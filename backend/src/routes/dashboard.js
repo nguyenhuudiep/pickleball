@@ -1,25 +1,23 @@
 const express = require('express');
+const { Op } = require('sequelize');
 const { protect, requirePermission } = require('../middleware/auth');
-const Member = require('../models/Member');
-const Booking = require('../models/Booking');
-const Financial = require('../models/Financial');
+const { Member, Booking, Financial } = require('../models');
 
 const router = express.Router();
 
 const buildRange = (startDate, endDate) => {
-  if (!startDate && !endDate) return null;
-
   const range = {};
+
   if (startDate) {
-    range.$gte = new Date(startDate);
+    range[Op.gte] = new Date(startDate);
   }
   if (endDate) {
     const end = new Date(endDate);
     end.setHours(23, 59, 59, 999);
-    range.$lte = end;
+    range[Op.lte] = end;
   }
 
-  return range;
+  return Reflect.ownKeys(range).length ? range : null;
 };
 
 router.get('/stats', protect, requirePermission('view_dashboard'), async (req, res) => {
@@ -27,25 +25,19 @@ router.get('/stats', protect, requirePermission('view_dashboard'), async (req, r
     const { startDate, endDate } = req.query;
     const range = buildRange(startDate, endDate);
 
-    const totalMembers = await Member.countDocuments();
-    const activeMembers = await Member.countDocuments({ status: 'active' });
     const bookingQuery = range ? { bookingDate: range } : {};
-    const totalBookings = await Booking.countDocuments(bookingQuery);
-
     const financialQuery = range ? { date: range } : {};
 
-    const incomeResult = await Financial.aggregate([
-      { $match: { ...financialQuery, type: 'income' } },
-      { $group: { _id: null, total: { $sum: '$amount' } } },
+    const [totalMembers, activeMembers, totalBookings, totalIncomeRaw, totalExpensesRaw] = await Promise.all([
+      Member.count(),
+      Member.count({ where: { status: 'active' } }),
+      Booking.count({ where: bookingQuery }),
+      Financial.sum('amount', { where: { ...financialQuery, type: 'income' } }),
+      Financial.sum('amount', { where: { ...financialQuery, type: 'expense' } }),
     ]);
 
-    const expenseResult = await Financial.aggregate([
-      { $match: { ...financialQuery, type: 'expense' } },
-      { $group: { _id: null, total: { $sum: '$amount' } } },
-    ]);
-
-    const totalIncome = incomeResult[0]?.total || 0;
-    const totalExpenses = expenseResult[0]?.total || 0;
+    const totalIncome = Number(totalIncomeRaw || 0);
+    const totalExpenses = Number(totalExpensesRaw || 0);
 
     res.status(200).json({
       success: true,

@@ -50,7 +50,7 @@ const migrate = async () => {
   console.log('Connected to MongoDB for migration');
 
   await sequelize.authenticate();
-  await sequelize.sync({ alter: true });
+  await sequelize.sync();
   console.log('Connected to SQL Server and synced schema');
 
   if (truncate) {
@@ -79,7 +79,6 @@ const migrate = async () => {
     }
 
     const payload = {
-      mongoId,
       name: doc.name || username,
       username,
       password: doc.password || 'changeme123',
@@ -102,7 +101,6 @@ const migrate = async () => {
     const mongoId = toMongoId(doc._id);
 
     const payload = {
-      mongoId,
       name: doc.name || 'Unknown Member',
       username: doc.username || null,
       password: doc.password || null,
@@ -120,7 +118,7 @@ const migrate = async () => {
       updatedAt: doc.updatedAt || new Date(),
     };
 
-    const existing = await Member.findOne({ where: { mongoId } });
+    const existing = doc.username ? await Member.findOne({ where: { username: doc.username } }) : null;
     const member = existing ? await existing.update(payload) : await Member.create(payload);
     memberMap.set(mongoId, member.id);
   }
@@ -130,7 +128,6 @@ const migrate = async () => {
   for (const doc of courts) {
     const mongoId = toMongoId(doc._id);
     const payload = {
-      mongoId,
       name: doc.name || 'Court',
       courtNumber: doc.courtNumber || `COURT-${mongoId}`,
       surface: ['hard', 'clay', 'indoor'].includes(doc.surface) ? doc.surface : 'hard',
@@ -142,7 +139,7 @@ const migrate = async () => {
       updatedAt: doc.updatedAt || new Date(),
     };
 
-    const existing = await Court.findOne({ where: { mongoId } });
+    const existing = await Court.findOne({ where: { courtNumber: payload.courtNumber } });
     const court = existing ? await existing.update(payload) : await Court.create(payload);
     courtMap.set(mongoId, court.id);
   }
@@ -161,7 +158,6 @@ const migrate = async () => {
     }
 
     const payload = {
-      mongoId,
       memberId,
       courtId,
       bookingDate: doc.bookingDate || new Date(),
@@ -175,7 +171,15 @@ const migrate = async () => {
       updatedAt: doc.updatedAt || new Date(),
     };
 
-    const existing = await Booking.findOne({ where: { mongoId } });
+    const existing = await Booking.findOne({
+      where: {
+        memberId,
+        courtId,
+        bookingDate: payload.bookingDate,
+        startTime: payload.startTime,
+        endTime: payload.endTime,
+      },
+    });
     const booking = existing ? await existing.update(payload) : await Booking.create(payload);
     bookingMap.set(mongoId, booking.id);
   }
@@ -188,7 +192,6 @@ const migrate = async () => {
     const bookingId = doc.bookingId ? bookingMap.get(toMongoId(doc.bookingId)) || null : null;
 
     const payload = {
-      mongoId,
       type: ['income', 'expense'].includes(doc.type) ? doc.type : 'income',
       category: doc.category || 'Other',
       description: doc.description || null,
@@ -204,7 +207,14 @@ const migrate = async () => {
     };
 
     try {
-      const existing = await Financial.findOne({ where: { mongoId } });
+      const existing = await Financial.findOne({
+        where: {
+          type: payload.type,
+          category: payload.category,
+          amount: payload.amount,
+          date: payload.date,
+        },
+      });
       if (existing) {
         await existing.update(payload);
       } else {
@@ -221,7 +231,6 @@ const migrate = async () => {
   for (const doc of tournaments) {
     const mongoId = toMongoId(doc._id);
     const payload = {
-      mongoId,
       name: doc.name || 'Tournament',
       date: doc.date || new Date(),
       location: doc.location || '',
@@ -230,7 +239,7 @@ const migrate = async () => {
       updatedAt: doc.updatedAt || new Date(),
     };
 
-    const existing = await Tournament.findOne({ where: { mongoId } });
+    const existing = await Tournament.findOne({ where: { name: payload.name, date: payload.date } });
     const tournament = existing ? await existing.update(payload) : await Tournament.create(payload);
     tournamentMap.set(mongoId, tournament.id);
 

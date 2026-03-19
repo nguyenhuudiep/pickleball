@@ -1,12 +1,48 @@
-const Tournament = require('../models/Tournament');
+const { Tournament, TournamentParticipant, Member } = require('../models');
+const { withMongoId } = require('../utils/apiMapper');
+
+const mapTournament = (record) => {
+  const mapped = withMongoId(record);
+  if (!mapped) return mapped;
+
+  const participants = (mapped.participants || []).map((participant) => {
+    const mappedParticipant = withMongoId(participant);
+    const member = participant.member ? withMongoId(participant.member) : null;
+
+    return {
+      ...mappedParticipant,
+      memberId: member || String(participant.memberId),
+    };
+  });
+
+  return {
+    ...mapped,
+    participants,
+  };
+};
 
 exports.getTournaments = async (req, res) => {
   try {
-    const tournaments = await Tournament.find()
-      .populate('participants.memberId', 'name username skillLevel')
-      .sort({ date: -1 });
+    const tournaments = await Tournament.findAll({
+      include: [
+        {
+          model: TournamentParticipant,
+          as: 'participants',
+          required: false,
+          include: [
+            {
+              model: Member,
+              as: 'member',
+              required: false,
+              attributes: ['id', 'name', 'username', 'skillLevel'],
+            },
+          ],
+        },
+      ],
+      order: [['date', 'DESC']],
+    });
 
-    res.status(200).json({ success: true, tournaments });
+    res.status(200).json({ success: true, tournaments: tournaments.map(mapTournament) });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -21,10 +57,37 @@ exports.createTournament = async (req, res) => {
       date,
       location,
       description,
-      participants: participants || [],
     });
 
-    res.status(201).json({ success: true, tournament });
+    const incomingParticipants = Array.isArray(participants) ? participants : [];
+    for (const participant of incomingParticipants) {
+      await TournamentParticipant.create({
+        tournamentId: tournament.id,
+        memberId: Number(participant.memberId),
+        rank: participant.rank || null,
+        result: participant.result || '',
+      });
+    }
+
+    const fullTournament = await Tournament.findByPk(tournament.id, {
+      include: [
+        {
+          model: TournamentParticipant,
+          as: 'participants',
+          required: false,
+          include: [
+            {
+              model: Member,
+              as: 'member',
+              required: false,
+              attributes: ['id', 'name', 'username', 'skillLevel'],
+            },
+          ],
+        },
+      ],
+    });
+
+    res.status(201).json({ success: true, tournament: mapTournament(fullTournament) });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -34,23 +97,49 @@ exports.updateTournament = async (req, res) => {
   try {
     const { name, date, location, description, participants } = req.body;
 
-    const tournament = await Tournament.findByIdAndUpdate(
-      req.params.id,
-      {
-        name,
-        date,
-        location,
-        description,
-        participants: participants || [],
-      },
-      { new: true, runValidators: true }
-    ).populate('participants.memberId', 'name username skillLevel');
+    const tournament = await Tournament.findByPk(req.params.id);
 
     if (!tournament) {
       return res.status(404).json({ success: false, message: 'Giải đấu không tồn tại' });
     }
 
-    res.status(200).json({ success: true, tournament, message: 'Cập nhật giải đấu thành công' });
+    await tournament.update({ name, date, location, description });
+
+    await TournamentParticipant.destroy({ where: { tournamentId: tournament.id } });
+
+    const incomingParticipants = Array.isArray(participants) ? participants : [];
+    for (const participant of incomingParticipants) {
+      await TournamentParticipant.create({
+        tournamentId: tournament.id,
+        memberId: Number(participant.memberId),
+        rank: participant.rank || null,
+        result: participant.result || '',
+      });
+    }
+
+    const fullTournament = await Tournament.findByPk(tournament.id, {
+      include: [
+        {
+          model: TournamentParticipant,
+          as: 'participants',
+          required: false,
+          include: [
+            {
+              model: Member,
+              as: 'member',
+              required: false,
+              attributes: ['id', 'name', 'username', 'skillLevel'],
+            },
+          ],
+        },
+      ],
+    });
+
+    res.status(200).json({
+      success: true,
+      tournament: mapTournament(fullTournament),
+      message: 'Cập nhật giải đấu thành công',
+    });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -58,11 +147,14 @@ exports.updateTournament = async (req, res) => {
 
 exports.deleteTournament = async (req, res) => {
   try {
-    const tournament = await Tournament.findByIdAndDelete(req.params.id);
+    const tournament = await Tournament.findByPk(req.params.id);
 
     if (!tournament) {
       return res.status(404).json({ success: false, message: 'Giải đấu không tồn tại' });
     }
+
+    await TournamentParticipant.destroy({ where: { tournamentId: tournament.id } });
+    await tournament.destroy();
 
     res.status(200).json({ success: true, message: 'Xóa giải đấu thành công' });
   } catch (error) {
@@ -72,11 +164,29 @@ exports.deleteTournament = async (req, res) => {
 
 exports.getMemberTournamentHistory = async (req, res) => {
   try {
-    const tournaments = await Tournament.find({ 'participants.memberId': req.params.memberId })
-      .populate('participants.memberId', 'name username skillLevel')
-      .sort({ date: -1 });
+    const memberId = Number(req.params.memberId);
 
-    res.status(200).json({ success: true, tournaments });
+    const tournaments = await Tournament.findAll({
+      include: [
+        {
+          model: TournamentParticipant,
+          as: 'participants',
+          required: true,
+          where: { memberId },
+          include: [
+            {
+              model: Member,
+              as: 'member',
+              required: false,
+              attributes: ['id', 'name', 'username', 'skillLevel'],
+            },
+          ],
+        },
+      ],
+      order: [['date', 'DESC']],
+    });
+
+    res.status(200).json({ success: true, tournaments: tournaments.map(mapTournament) });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

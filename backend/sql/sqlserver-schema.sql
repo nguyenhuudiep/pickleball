@@ -5,7 +5,6 @@ IF OBJECT_ID('users', 'U') IS NULL
 BEGIN
   CREATE TABLE users (
     id INT IDENTITY(1,1) PRIMARY KEY,
-    mongoId NVARCHAR(24) NULL UNIQUE,
     name NVARCHAR(255) NOT NULL,
     username NVARCHAR(100) NOT NULL UNIQUE,
     password NVARCHAR(255) NOT NULL,
@@ -22,7 +21,6 @@ IF OBJECT_ID('members', 'U') IS NULL
 BEGIN
   CREATE TABLE members (
     id INT IDENTITY(1,1) PRIMARY KEY,
-    mongoId NVARCHAR(24) NULL UNIQUE,
     name NVARCHAR(255) NOT NULL,
     username NVARCHAR(100) NULL,
     password NVARCHAR(255) NULL,
@@ -45,7 +43,6 @@ IF OBJECT_ID('courts', 'U') IS NULL
 BEGIN
   CREATE TABLE courts (
     id INT IDENTITY(1,1) PRIMARY KEY,
-    mongoId NVARCHAR(24) NULL UNIQUE,
     name NVARCHAR(255) NOT NULL,
     courtNumber NVARCHAR(50) NOT NULL UNIQUE,
     surface NVARCHAR(20) NOT NULL DEFAULT 'hard',
@@ -62,7 +59,6 @@ IF OBJECT_ID('bookings', 'U') IS NULL
 BEGIN
   CREATE TABLE bookings (
     id INT IDENTITY(1,1) PRIMARY KEY,
-    mongoId NVARCHAR(24) NULL UNIQUE,
     memberId INT NOT NULL,
     courtId INT NOT NULL,
     bookingDate DATETIME2 NOT NULL,
@@ -83,7 +79,6 @@ IF OBJECT_ID('financials', 'U') IS NULL
 BEGIN
   CREATE TABLE financials (
     id INT IDENTITY(1,1) PRIMARY KEY,
-    mongoId NVARCHAR(24) NULL UNIQUE,
     type NVARCHAR(20) NOT NULL,
     category NVARCHAR(255) NOT NULL,
     description NVARCHAR(255) NULL,
@@ -102,7 +97,6 @@ IF OBJECT_ID('tournaments', 'U') IS NULL
 BEGIN
   CREATE TABLE tournaments (
     id INT IDENTITY(1,1) PRIMARY KEY,
-    mongoId NVARCHAR(24) NULL UNIQUE,
     name NVARCHAR(255) NOT NULL,
     [date] DATETIME2 NOT NULL,
     location NVARCHAR(255) NULL,

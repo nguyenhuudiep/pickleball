@@ -9,11 +9,6 @@ const Financial = sequelize.define(
       primaryKey: true,
       autoIncrement: true,
     },
-    mongoId: {
-      type: DataTypes.STRING,
-      allowNull: true,
-      unique: true,
-    },
     type: {
       type: DataTypes.ENUM('income', 'expense'),
       allowNull: false,

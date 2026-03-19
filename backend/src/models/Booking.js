@@ -9,11 +9,6 @@ const Booking = sequelize.define(
       primaryKey: true,
       autoIncrement: true,
     },
-    mongoId: {
-      type: DataTypes.STRING,
-      allowNull: true,
-      unique: true,
-    },
     memberId: {
       type: DataTypes.INTEGER,
       allowNull: false,

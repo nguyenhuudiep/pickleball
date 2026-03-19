@@ -1,63 +1,55 @@
-const mongoose = require('mongoose');
-const bcrypt = require('bcryptjs');
-require('dotenv').config();
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '.env') });
+const { connectDB, sequelize } = require('./src/config/database');
+const User = require('./src/models/User');
 
-// Connection
-const connectDB = async () => {
-  try {
-    await mongoose.connect(process.env.MONGODB_URI);
-    console.log('✅ Connected to MongoDB');
-  } catch (error) {
-    console.error('❌ MongoDB connection failed:', error.message);
-    process.exit(1);
-  }
-};
-
-// User Schema
-const userSchema = new mongoose.Schema({
-  name: String,
-  username: { type: String, unique: true, lowercase: true },
-  password: String,
-  role: { type: String, enum: ['admin', 'member'], default: 'member' },
-  phone: String,
-  active: { type: Boolean, default: true },
-}, { timestamps: true });
-
-const User = mongoose.model('User', userSchema);
+const adminPermissions = [
+  'view_dashboard',
+  'view_members',
+  'manage_members',
+  'view_courts',
+  'manage_courts',
+  'view_bookings',
+  'create_bookings',
+  'edit_bookings',
+  'delete_bookings',
+  'view_financial',
+  'manage_financial',
+  'view_tournaments',
+  'manage_tournaments',
+  'view_reports',
+  'manage_users',
+];
 
 // Reset user
 const resetUser = async () => {
   try {
-    // Delete existing user
-    const deletedUser = await User.deleteOne({ username: 'diepnh' });
-    console.log(`✅ Deleted ${deletedUser.deletedCount} existing user(s)`);
+    await connectDB();
 
-    // Hash password
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash('TrucNhi3103', salt);
+    const deletedCount = await User.destroy({ where: { username: 'diepnh' } });
+    console.log(`✅ Deleted ${deletedCount} existing user(s)`);
 
-    // Create user
-    const user = new User({
+    await User.create({
       name: 'Diep Nhat Ha',
       username: 'diepnh',
-      password: hashedPassword,
+      password: 'TrucNhi3103',
       role: 'admin',
+      permissions: adminPermissions,
       phone: '',
       active: true,
     });
 
-    await user.save();
     console.log('✅ User created successfully:');
     console.log('   Username: diepnh');
     console.log('   Password: TrucNhi3103');
     console.log('   Role: admin');
-    console.log('\n📝 Now you can login at http://localhost:3002');
+    console.log('\n📝 Now you can login at http://localhost:3000');
   } catch (error) {
     console.error('❌ Error:', error.message);
   } finally {
-    await mongoose.connection.close();
+    await sequelize.close();
     process.exit(0);
   }
 };
 
-connectDB().then(() => resetUser());
+resetUser();

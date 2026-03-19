@@ -1,34 +1,55 @@
-const Financial = require('../models/Financial');
+const { Op, QueryTypes } = require('sequelize');
+const { sequelize } = require('../config/database');
+const { Financial, Booking } = require('../models');
+const { withMongoId, withMongoIdList } = require('../utils/apiMapper');
 
 const buildDateQuery = (startDate, endDate) => {
-  if (!startDate && !endDate) return {};
-
   const dateQuery = {};
 
   if (startDate) {
-    dateQuery.$gte = new Date(startDate);
+    dateQuery[Op.gte] = new Date(startDate);
   }
 
   if (endDate) {
     const end = new Date(endDate);
     end.setHours(23, 59, 59, 999);
-    dateQuery.$lte = end;
+    dateQuery[Op.lte] = end;
   }
 
-  return { date: dateQuery };
+  return Reflect.ownKeys(dateQuery).length ? { date: dateQuery } : {};
+};
+
+const mapFinancialRecord = (record) => {
+  const mapped = withMongoId(record);
+  if (!mapped) return mapped;
+
+  if (mapped.booking) {
+    mapped.bookingId = withMongoId(mapped.booking);
+    delete mapped.booking;
+  }
+
+  return mapped;
 };
 
 exports.getFinancials = async (req, res) => {
   try {
     const { startDate, endDate, type } = req.query;
-    const query = buildDateQuery(startDate, endDate);
+    const where = buildDateQuery(startDate, endDate);
 
     if (type && ['income', 'expense'].includes(type)) {
-      query.type = type;
+      where.type = type;
     }
 
-    const financials = await Financial.find(query).populate('bookingId').sort({ date: -1 });
-    res.status(200).json({ success: true, financials });
+    const financials = await Financial.findAll({
+      where,
+      include: [{ model: Booking, as: 'booking', required: false }],
+      order: [['date', 'DESC']],
+    });
+
+    res.status(200).json({
+      success: true,
+      financials: financials.map(mapFinancialRecord),
+    });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -42,13 +63,13 @@ exports.createFinancial = async (req, res) => {
       type,
       category,
       description,
-      amount,
+      amount: Number(amount || 0),
       paymentMethod,
-      bookingId,
+      bookingId: bookingId ? Number(bookingId) : null,
       date,
     });
 
-    res.status(201).json({ success: true, financial });
+    res.status(201).json({ success: true, financial: withMongoId(financial) });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -58,25 +79,27 @@ exports.updateFinancial = async (req, res) => {
   try {
     const { type, category, description, amount, paymentMethod, bookingId, date } = req.body;
 
-    const financial = await Financial.findByIdAndUpdate(
-      req.params.id,
-      {
-        type,
-        category,
-        description,
-        amount,
-        paymentMethod,
-        bookingId,
-        date,
-      },
-      { new: true, runValidators: true }
-    );
+    const financial = await Financial.findByPk(req.params.id);
 
     if (!financial) {
       return res.status(404).json({ success: false, message: 'Bản ghi tài chính không tồn tại' });
     }
 
-    res.status(200).json({ success: true, financial, message: 'Cập nhật bản ghi tài chính thành công' });
+    await financial.update({
+      type,
+      category,
+      description,
+      amount: Number(amount || 0),
+      paymentMethod,
+      bookingId: bookingId ? Number(bookingId) : null,
+      date,
+    });
+
+    res.status(200).json({
+      success: true,
+      financial: withMongoId(financial),
+      message: 'Cập nhật bản ghi tài chính thành công',
+    });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -84,11 +107,13 @@ exports.updateFinancial = async (req, res) => {
 
 exports.deleteFinancial = async (req, res) => {
   try {
-    const financial = await Financial.findByIdAndDelete(req.params.id);
+    const financial = await Financial.findByPk(req.params.id);
 
     if (!financial) {
       return res.status(404).json({ success: false, message: 'Bản ghi tài chính không tồn tại' });
     }
+
+    await financial.destroy();
 
     res.status(200).json({ success: true, message: 'Xóa bản ghi tài chính thành công' });
   } catch (error) {
@@ -100,37 +125,64 @@ exports.getFinancialStats = async (req, res) => {
   try {
     const { startDate, endDate, type } = req.query;
 
-    const query = buildDateQuery(startDate, endDate);
+    const dateWhere = buildDateQuery(startDate, endDate);
     const typeFilter = type && ['income', 'expense'].includes(type) ? type : null;
 
-    const income = await Financial.aggregate([
-      { $match: { ...query, ...(typeFilter ? { type: typeFilter } : { type: 'income' }) } },
-      { $group: { _id: null, total: { $sum: '$amount' } } },
+    const [incomeTotal, expenseTotal] = await Promise.all([
+      Financial.sum('amount', { where: { ...dateWhere, type: 'income' } }),
+      Financial.sum('amount', { where: { ...dateWhere, type: 'expense' } }),
     ]);
 
-    const expenses = await Financial.aggregate([
-      { $match: { ...query, ...(typeFilter ? { type: typeFilter } : { type: 'expense' }) } },
-      { $group: { _id: null, total: { $sum: '$amount' } } },
-    ]);
+    const whereSql = [];
+    const replacements = {};
 
-    const monthlyData = await Financial.aggregate([
-      { $match: { ...query, ...(typeFilter ? { type: typeFilter } : {}) } },
+    if (startDate) {
+      whereSql.push('[date] >= :startDate');
+      replacements.startDate = new Date(startDate);
+    }
+
+    if (endDate) {
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999);
+      whereSql.push('[date] <= :endDate');
+      replacements.endDate = end;
+    }
+
+    if (typeFilter) {
+      whereSql.push('[type] = :typeFilter');
+      replacements.typeFilter = typeFilter;
+    }
+
+    const monthlyData = await sequelize.query(
+      `
+      SELECT
+        FORMAT([date], 'yyyy-MM') AS [_id],
+        SUM(CASE WHEN [type] = 'income' THEN amount ELSE 0 END) AS income,
+        SUM(CASE WHEN [type] = 'expense' THEN amount ELSE 0 END) AS expense
+      FROM financials
+      ${whereSql.length ? `WHERE ${whereSql.join(' AND ')}` : ''}
+      GROUP BY FORMAT([date], 'yyyy-MM')
+      ORDER BY [_id] ASC
+      `,
       {
-        $group: {
-          _id: { $dateToString: { format: '%Y-%m', date: '$date' } },
-          income: { $sum: { $cond: [{ $eq: ['$type', 'income'] }, '$amount', 0] } },
-          expense: { $sum: { $cond: [{ $eq: ['$type', 'expense'] }, '$amount', 0] } },
-        },
-      },
-      { $sort: { _id: 1 } },
-    ]);
+        replacements,
+        type: QueryTypes.SELECT,
+      }
+    );
+
+    const income = typeFilter === 'expense' ? 0 : Number(incomeTotal || 0);
+    const expenses = typeFilter === 'income' ? 0 : Number(expenseTotal || 0);
 
     res.status(200).json({
       success: true,
-      income: income[0]?.total || 0,
-      expenses: expenses[0]?.total || 0,
-      profit: (income[0]?.total || 0) - (expenses[0]?.total || 0),
-      monthlyData,
+      income,
+      expenses,
+      profit: income - expenses,
+      monthlyData: monthlyData.map((row) => ({
+        _id: row._id,
+        income: Number(row.income || 0),
+        expense: Number(row.expense || 0),
+      })),
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });

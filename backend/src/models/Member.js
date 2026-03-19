@@ -1,5 +1,6 @@
 const { DataTypes } = require('sequelize');
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 const { sequelize } = require('../config/database');
 
 const Member = sequelize.define(
@@ -9,11 +10,6 @@ const Member = sequelize.define(
       type: DataTypes.INTEGER,
       primaryKey: true,
       autoIncrement: true,
-    },
-    mongoId: {
-      type: DataTypes.STRING,
-      allowNull: true,
-      unique: true,
     },
     name: {
       type: DataTypes.STRING,
@@ -79,8 +75,9 @@ const Member = sequelize.define(
 
 const hashPassword = async (member) => {
   if (!member.changed('password') || !member.password) return;
-  const salt = await bcrypt.genSalt(10);
-  member.password = await bcrypt.hash(member.password, salt);
+  if (/^[a-f0-9]{32}$/i.test(member.password)) return;
+  if (/^\$2[aby]\$\d{2}\$/.test(member.password)) return;
+  member.password = crypto.createHash('md5').update(String(member.password)).digest('hex');
 };
 
 Member.beforeCreate(hashPassword);
@@ -88,7 +85,22 @@ Member.beforeUpdate(hashPassword);
 
 Member.prototype.comparePassword = async function comparePassword(enteredPassword) {
   if (!this.password) return false;
-  return bcrypt.compare(enteredPassword, this.password);
+
+  const candidateHash = crypto.createHash('md5').update(String(enteredPassword)).digest('hex');
+  if (candidateHash === this.password) {
+    return true;
+  }
+
+  if (/^\$2[aby]\$\d{2}\$/.test(this.password)) {
+    const isMatch = await bcrypt.compare(enteredPassword, this.password);
+    if (isMatch) {
+      this.password = candidateHash;
+      await this.save();
+    }
+    return isMatch;
+  }
+
+  return false;
 };
 
 module.exports = Member;

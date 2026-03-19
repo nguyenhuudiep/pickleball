@@ -1,5 +1,6 @@
 const User = require('../models/User');
-const bcrypt = require('bcryptjs');
+const { Op } = require('sequelize');
+const { withMongoId, withMongoIdList } = require('../utils/apiMapper');
 
 const defaultPermissionsByRole = {
   admin: [
@@ -43,10 +44,14 @@ const validPermissions = [
 // Get all users
 exports.getAllUsers = async (req, res) => {
   try {
-    const users = await User.find().select('-password');
+    const users = await User.findAll({
+      attributes: { exclude: ['password'] },
+      order: [['createdAt', 'DESC']],
+    });
+
     res.status(200).json({
       success: true,
-      users,
+      users: withMongoIdList(users),
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -56,13 +61,17 @@ exports.getAllUsers = async (req, res) => {
 // Get user by id
 exports.getUserById = async (req, res) => {
   try {
-    const user = await User.findById(req.params.id).select('-password');
+    const user = await User.findByPk(req.params.id, {
+      attributes: { exclude: ['password'] },
+    });
+
     if (!user) {
       return res.status(404).json({ success: false, message: 'Người dùng không tồn tại' });
     }
+
     res.status(200).json({
       success: true,
-      user,
+      user: withMongoId(user),
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -79,20 +88,23 @@ exports.updateUserRole = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Loại tài khoản không hợp lệ' });
     }
 
-    const user = await User.findByIdAndUpdate(
-      req.params.id,
-      { role },
-      { new: true, runValidators: true }
-    ).select('-password');
+    const user = await User.findByPk(req.params.id);
 
     if (!user) {
       return res.status(404).json({ success: false, message: 'Người dùng không tồn tại' });
     }
 
+    user.role = role;
+    user.permissions = defaultPermissionsByRole[role] || defaultPermissionsByRole.member;
+    await user.save();
+
+    const safeUser = withMongoId(user);
+    delete safeUser.password;
+
     res.status(200).json({
       success: true,
       message: 'Cập nhật loại tài khoản thành công',
-      user,
+      user: safeUser,
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -105,7 +117,7 @@ exports.updateUser = async (req, res) => {
     const { name, username, role, password, permissions } = req.body;
 
     // Lấy user hiện tại
-    const user = await User.findById(req.params.id);
+    const user = await User.findByPk(req.params.id);
     if (!user) {
       return res.status(404).json({ success: false, message: 'Người dùng không tồn tại' });
     }
@@ -117,7 +129,13 @@ exports.updateUser = async (req, res) => {
 
     // Cập nhật username
     if (username && username.trim()) {
-      const existingUser = await User.findOne({ username: username.toLowerCase(), _id: { $ne: req.params.id } });
+      const existingUser = await User.findOne({
+        where: {
+          username: username.toLowerCase(),
+          id: { [Op.ne]: Number(req.params.id) },
+        },
+      });
+
       if (existingUser) {
         return res.status(400).json({ success: false, message: 'Tên đăng nhập đã được sử dụng' });
       }
@@ -156,12 +174,13 @@ exports.updateUser = async (req, res) => {
     await user.save();
 
     // Loại bỏ password trước khi gửi response
-    user.password = undefined;
+    const safeUser = withMongoId(user);
+    delete safeUser.password;
 
     res.status(200).json({
       success: true,
       message: 'Cập nhật người dùng thành công',
-      user,
+      user: safeUser,
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -171,10 +190,12 @@ exports.updateUser = async (req, res) => {
 // Delete user
 exports.deleteUser = async (req, res) => {
   try {
-    const user = await User.findByIdAndDelete(req.params.id);
+    const user = await User.findByPk(req.params.id);
     if (!user) {
       return res.status(404).json({ success: false, message: 'Người dùng không tồn tại' });
     }
+
+    await user.destroy();
 
     res.status(200).json({
       success: true,

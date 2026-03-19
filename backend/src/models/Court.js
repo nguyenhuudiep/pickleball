@@ -9,11 +9,6 @@ const Court = sequelize.define(
       primaryKey: true,
       autoIncrement: true,
     },
-    mongoId: {
-      type: DataTypes.STRING,
-      allowNull: true,
-      unique: true,
-    },
     name: {
       type: DataTypes.STRING,
       allowNull: false,
