@@ -32,15 +32,14 @@ const protect = (req, res, next) => {
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your_jwt_secret_key_here');
 
-    User.findById(decoded.id)
-      .select('role permissions active')
+    User.findByPk(decoded.id, { attributes: ['id', 'role', 'permissions', 'active'] })
       .then((user) => {
         if (!user || user.active === false) {
           return res.status(401).json({ success: false, message: 'User not found or inactive' });
         }
 
         req.user = {
-          id: user._id.toString(),
+          id: String(user.id),
           role: user.role,
           permissions: user.permissions?.length ? user.permissions : (defaultPermissionsByRole[user.role] || []),
         };

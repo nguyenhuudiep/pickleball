@@ -1,41 +1,36 @@
 const { DataTypes } = require('sequelize');
 const { sequelize } = require('../config/database');
 
-const Tournament = sequelize.define(
-  'Tournament',
+const TournamentParticipant = sequelize.define(
+  'TournamentParticipant',
   {
     id: {
       type: DataTypes.INTEGER,
       primaryKey: true,
       autoIncrement: true,
     },
-    mongoId: {
-      type: DataTypes.STRING,
-      allowNull: true,
-      unique: true,
-    },
-    name: {
-      type: DataTypes.STRING,
+    tournamentId: {
+      type: DataTypes.INTEGER,
       allowNull: false,
     },
-    date: {
-      type: DataTypes.DATE,
+    memberId: {
+      type: DataTypes.INTEGER,
       allowNull: false,
     },
-    location: {
-      type: DataTypes.STRING,
+    rank: {
+      type: DataTypes.INTEGER,
       allowNull: true,
-      defaultValue: '',
+      defaultValue: null,
     },
-    description: {
+    result: {
       type: DataTypes.STRING,
       allowNull: true,
       defaultValue: '',
     },
   },
   {
-    tableName: 'tournaments',
+    tableName: 'tournament_participants',
   }
 );
 
-module.exports = Tournament;
+module.exports = TournamentParticipant;

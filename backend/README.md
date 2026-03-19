@@ -81,6 +81,46 @@ npm start
 
 This system uses MongoDB. Make sure MongoDB is running locally or update MONGODB_URI in .env file.
 
+## Migrate MongoDB to SQL Server
+
+The backend now includes a migration script that reads data from MongoDB and writes to SQL Server.
+
+1. Update `backend/.env` with SQL Server settings:
+
+```
+SQL_HOST=localhost
+SQL_PORT=1433
+SQL_DATABASE=pickleball
+SQL_USER=sa
+SQL_PASSWORD=yourStrongPassword
+SQL_ENCRYPT=false
+SQL_TRUST_SERVER_CERTIFICATE=true
+```
+
+2. Optional: If source Mongo is different from `MONGODB_URI`, add:
+
+```
+MIGRATION_MONGODB_URI=mongodb+srv://...
+```
+
+3. Run migration:
+
+```bash
+npm run migrate:mongo-to-sql
+```
+
+4. If you want to clear SQL tables before importing, set:
+
+```
+MIGRATION_TRUNCATE=true
+```
+
+Then run migration again.
+
+Note:
+- A baseline SQL schema file is provided at `backend/sql/sqlserver-schema.sql`.
+- If SQL Server is not running or not listening on the configured host/port, migration will fail at connection step.
+
 ## Notes
 
 - All protected endpoints require JWT token in header: `Authorization: Bearer <token>`

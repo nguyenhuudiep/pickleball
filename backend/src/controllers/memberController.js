@@ -1,5 +1,5 @@
 const Member = require('../models/Member');
-const bcrypt = require('bcryptjs');
+const { withMongoId, withMongoIdList } = require('../utils/apiMapper');
 
 const normalizeOptionalString = (value) => {
   if (typeof value !== 'string') return value;
@@ -9,8 +9,8 @@ const normalizeOptionalString = (value) => {
 
 exports.getMembers = async (req, res) => {
   try {
-    const members = await Member.find();
-    res.status(200).json({ success: true, members });
+    const members = await Member.findAll({ order: [['createdAt', 'DESC']] });
+    res.status(200).json({ success: true, members: withMongoIdList(members) });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -35,7 +35,7 @@ exports.createMember = async (req, res) => {
       gender,
     });
 
-    res.status(201).json({ success: true, member });
+    res.status(201).json({ success: true, member: withMongoId(member) });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -43,11 +43,11 @@ exports.createMember = async (req, res) => {
 
 exports.getMemberById = async (req, res) => {
   try {
-    const member = await Member.findById(req.params.id);
+    const member = await Member.findByPk(req.params.id);
     if (!member) {
       return res.status(404).json({ success: false, message: 'Member not found' });
     }
-    res.status(200).json({ success: true, member });
+    res.status(200).json({ success: true, member: withMongoId(member) });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -65,13 +65,11 @@ exports.updateMember = async (req, res) => {
       updateData.phone = normalizeOptionalString(updateData.phone);
     }
     
-    // Lấy member hiện tại
-    const member = await Member.findById(req.params.id);
+    const member = await Member.findByPk(req.params.id);
     if (!member) {
       return res.status(404).json({ success: false, message: 'Member not found' });
     }
 
-    // Cập nhật các fields khác
     Object.assign(member, updateData);
 
     // Cập nhật password nếu có
@@ -83,10 +81,9 @@ exports.updateMember = async (req, res) => {
       member.password = normalizedPassword;
     }
 
-    // Lưu member (sẽ kích hoạt pre-save hook để hash password)
     await member.save();
 
-    res.status(200).json({ success: true, member });
+    res.status(200).json({ success: true, member: withMongoId(member) });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -94,10 +91,12 @@ exports.updateMember = async (req, res) => {
 
 exports.deleteMember = async (req, res) => {
   try {
-    const member = await Member.findByIdAndDelete(req.params.id);
+    const member = await Member.findByPk(req.params.id);
     if (!member) {
       return res.status(404).json({ success: false, message: 'Member not found' });
     }
+
+    await member.destroy();
     res.status(200).json({ success: true, message: 'Member deleted' });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });

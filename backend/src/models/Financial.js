@@ -1,37 +1,55 @@
-const mongoose = require('mongoose');
+const { DataTypes } = require('sequelize');
+const { sequelize } = require('../config/database');
 
-const financialSchema = new mongoose.Schema(
+const Financial = sequelize.define(
+  'Financial',
   {
+    id: {
+      type: DataTypes.INTEGER,
+      primaryKey: true,
+      autoIncrement: true,
+    },
+    mongoId: {
+      type: DataTypes.STRING,
+      allowNull: true,
+      unique: true,
+    },
     type: {
-      type: String,
-      enum: ['income', 'expense'],
-      required: true,
+      type: DataTypes.ENUM('income', 'expense'),
+      allowNull: false,
     },
     category: {
-      type: String,
-      required: true,
+      type: DataTypes.STRING,
+      allowNull: false,
     },
-    description: String,
+    description: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
     amount: {
-      type: Number,
-      required: true,
+      type: DataTypes.FLOAT,
+      allowNull: false,
     },
     bookingId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Booking',
+      type: DataTypes.INTEGER,
+      allowNull: true,
     },
     paymentMethod: {
-      type: String,
-      enum: ['cash', 'card', 'transfer', 'other'],
-      default: 'cash',
+      type: DataTypes.ENUM('cash', 'card', 'transfer', 'other'),
+      defaultValue: 'cash',
     },
     date: {
-      type: Date,
-      default: Date.now,
+      type: DataTypes.DATE,
+      defaultValue: DataTypes.NOW,
     },
-    notes: String,
+    notes: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
   },
-  { timestamps: true }
+  {
+    tableName: 'financials',
+  }
 );
 
-module.exports = mongoose.model('Financial', financialSchema);
+module.exports = Financial;

@@ -1,79 +1,94 @@
-const mongoose = require('mongoose');
+const { DataTypes } = require('sequelize');
 const bcrypt = require('bcryptjs');
+const { sequelize } = require('../config/database');
 
-const memberSchema = new mongoose.Schema(
+const Member = sequelize.define(
+  'Member',
   {
+    id: {
+      type: DataTypes.INTEGER,
+      primaryKey: true,
+      autoIncrement: true,
+    },
+    mongoId: {
+      type: DataTypes.STRING,
+      allowNull: true,
+      unique: true,
+    },
     name: {
-      type: String,
-      required: true,
+      type: DataTypes.STRING,
+      allowNull: false,
     },
     username: {
-      type: String,
-      unique: true,
-      sparse: true,
+      type: DataTypes.STRING,
+      allowNull: true,
+      set(value) {
+        const normalized = value ? String(value).trim() : null;
+        this.setDataValue('username', normalized || null);
+      },
     },
     password: {
-      type: String,
-      minlength: 6,
+      type: DataTypes.STRING,
+      allowNull: true,
     },
     phone: {
-      type: String,
+      type: DataTypes.STRING,
+      allowNull: true,
     },
-    address: String,
+    address: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
     membershipType: {
-      type: String,
-      enum: ['basic', 'premium', 'vip'],
-      default: 'basic',
+      type: DataTypes.ENUM('basic', 'premium', 'vip'),
+      defaultValue: 'basic',
     },
     skillLevel: {
-      type: Number,
-      default: 2.5,
-      min: 1.5,
-      max: 5.0,
+      type: DataTypes.FLOAT,
+      defaultValue: 2.5,
     },
     gender: {
-      type: String,
-      enum: ['male', 'female', 'other'],
-      default: 'male',
+      type: DataTypes.ENUM('male', 'female', 'other'),
+      defaultValue: 'male',
     },
     joinDate: {
-      type: Date,
-      default: Date.now,
+      type: DataTypes.DATE,
+      defaultValue: DataTypes.NOW,
     },
-    expiryDate: Date,
+    expiryDate: {
+      type: DataTypes.DATE,
+      allowNull: true,
+    },
     status: {
-      type: String,
-      enum: ['active', 'inactive', 'suspended'],
-      default: 'active',
+      type: DataTypes.ENUM('active', 'inactive', 'suspended'),
+      defaultValue: 'active',
     },
     totalBookings: {
-      type: Number,
-      default: 0,
+      type: DataTypes.INTEGER,
+      defaultValue: 0,
     },
     totalSpent: {
-      type: Number,
-      default: 0,
+      type: DataTypes.FLOAT,
+      defaultValue: 0,
     },
   },
-  { timestamps: true }
+  {
+    tableName: 'members',
+  }
 );
 
-// Hash password before saving if modified
-memberSchema.pre('save', async function (next) {
-  if (!this.isModified('password') || !this.password) return next();
-
-  try {
-    const salt = await bcrypt.genSalt(10);
-    this.password = await bcrypt.hash(this.password, salt);
-    next();
-  } catch (error) {
-    next(error);
-  }
-});
-
-// Compare password method
-memberSchema.methods.comparePassword = async function (enteredPassword) {
-  return await bcrypt.compare(enteredPassword, this.password);
+const hashPassword = async (member) => {
+  if (!member.changed('password') || !member.password) return;
+  const salt = await bcrypt.genSalt(10);
+  member.password = await bcrypt.hash(member.password, salt);
 };
 
-module.exports = mongoose.model('Member', memberSchema);
+Member.beforeCreate(hashPassword);
+Member.beforeUpdate(hashPassword);
+
+Member.prototype.comparePassword = async function comparePassword(enteredPassword) {
+  if (!this.password) return false;
+  return bcrypt.compare(enteredPassword, this.password);
+};
+
+module.exports = Member;

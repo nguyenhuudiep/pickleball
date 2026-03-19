@@ -1,5 +1,6 @@
 const User = require('../models/User');
 const jwt = require('jsonwebtoken');
+const { withMongoId } = require('../utils/apiMapper');
 
 const generateToken = (id, role) => {
   return jwt.sign({ id, role }, process.env.JWT_SECRET || 'your_jwt_secret_key_here', {
@@ -41,7 +42,7 @@ exports.register = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Mật khẩu phải có ít nhất 6 ký tự' });
     }
 
-    const userExists = await User.findOne({ username });
+    const userExists = await User.findOne({ where: { username: String(username).toLowerCase().trim() } });
     if (userExists) {
       return res.status(400).json({ success: false, message: 'Tên đăng nhập đã được đăng ký' });
     }
@@ -50,19 +51,28 @@ exports.register = async (req, res) => {
 
     const user = await User.create({
       name,
-      username,
+      username: String(username).toLowerCase().trim(),
       password,
       role: normalizedRole,
       permissions: Array.isArray(permissions) && permissions.length ? permissions : (defaultPermissionsByRole[normalizedRole] || defaultPermissionsByRole.member),
     });
 
-    const token = generateToken(user._id, user.role);
+    const token = generateToken(user.id, user.role);
+    const mappedUser = withMongoId(user);
+    delete mappedUser.password;
 
     res.status(201).json({
       success: true,
       message: 'Người dùng đã đăng ký thành công',
       token,
-      user: { id: user._id, name: user.name, username: user.username, role: user.role, permissions: user.permissions || [] },
+      user: {
+        id: mappedUser._id,
+        _id: mappedUser._id,
+        name: mappedUser.name,
+        username: mappedUser.username,
+        role: mappedUser.role,
+        permissions: mappedUser.permissions || [],
+      },
     });
   } catch (error) {
     console.error('Registration error:', error);
@@ -79,7 +89,7 @@ exports.login = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Vui lòng cung cấp tên đăng nhập và mật khẩu' });
     }
 
-    const user = await User.findOne({ username });
+    const user = await User.findOne({ where: { username: String(username).toLowerCase().trim() } });
     if (!user) {
       return res.status(401).json({ success: false, message: 'Thông tin đăng nhập không hợp lệ' });
     }
@@ -89,13 +99,22 @@ exports.login = async (req, res) => {
       return res.status(401).json({ success: false, message: 'Thông tin đăng nhập không hợp lệ' });
     }
 
-    const token = generateToken(user._id, user.role);
+    const token = generateToken(user.id, user.role);
+    const mappedUser = withMongoId(user);
+    delete mappedUser.password;
 
     res.status(200).json({
       success: true,
       message: 'Đăng nhập thành công',
       token,
-      user: { id: user._id, name: user.name, username: user.username, role: user.role, permissions: user.permissions || [] },
+      user: {
+        id: mappedUser._id,
+        _id: mappedUser._id,
+        name: mappedUser.name,
+        username: mappedUser.username,
+        role: mappedUser.role,
+        permissions: mappedUser.permissions || [],
+      },
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -104,8 +123,15 @@ exports.login = async (req, res) => {
 
 exports.getMe = async (req, res) => {
   try {
-    const user = await User.findById(req.user.id).select('-password');
-    res.status(200).json({ success: true, user });
+    const user = await User.findByPk(req.user.id, {
+      attributes: { exclude: ['password'] },
+    });
+
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'Người dùng không tồn tại' });
+    }
+
+    res.status(200).json({ success: true, user: withMongoId(user) });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

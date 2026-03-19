@@ -1,45 +1,59 @@
-const mongoose = require('mongoose');
+const { DataTypes } = require('sequelize');
+const { sequelize } = require('../config/database');
 
-const bookingSchema = new mongoose.Schema(
+const Booking = sequelize.define(
+  'Booking',
   {
+    id: {
+      type: DataTypes.INTEGER,
+      primaryKey: true,
+      autoIncrement: true,
+    },
+    mongoId: {
+      type: DataTypes.STRING,
+      allowNull: true,
+      unique: true,
+    },
     memberId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Member',
-      required: true,
+      type: DataTypes.INTEGER,
+      allowNull: false,
     },
     courtId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Court',
-      required: true,
+      type: DataTypes.INTEGER,
+      allowNull: false,
     },
     bookingDate: {
-      type: Date,
-      required: true,
+      type: DataTypes.DATE,
+      allowNull: false,
     },
     startTime: {
-      type: String,
-      required: true,
+      type: DataTypes.STRING,
+      allowNull: false,
     },
     endTime: {
-      type: String,
-      required: true,
+      type: DataTypes.STRING,
+      allowNull: false,
     },
     duration: {
-      type: Number,
-      required: true,
+      type: DataTypes.FLOAT,
+      allowNull: false,
     },
     price: {
-      type: Number,
-      required: true,
+      type: DataTypes.FLOAT,
+      allowNull: false,
     },
     status: {
-      type: String,
-      enum: ['pending', 'confirmed', 'completed', 'cancelled'],
-      default: 'pending',
+      type: DataTypes.ENUM('pending', 'confirmed', 'completed', 'cancelled'),
+      defaultValue: 'pending',
     },
-    notes: String,
+    notes: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
   },
-  { timestamps: true }
+  {
+    tableName: 'bookings',
+  }
 );
 
-module.exports = mongoose.model('Booking', bookingSchema);
+module.exports = Booking;

@@ -1,40 +1,52 @@
-const mongoose = require('mongoose');
+const { DataTypes } = require('sequelize');
+const { sequelize } = require('../config/database');
 
-const courtSchema = new mongoose.Schema(
+const Court = sequelize.define(
+  'Court',
   {
+    id: {
+      type: DataTypes.INTEGER,
+      primaryKey: true,
+      autoIncrement: true,
+    },
+    mongoId: {
+      type: DataTypes.STRING,
+      allowNull: true,
+      unique: true,
+    },
     name: {
-      type: String,
-      required: true,
+      type: DataTypes.STRING,
+      allowNull: false,
     },
     courtNumber: {
-      type: String,
-      required: true,
+      type: DataTypes.STRING,
+      allowNull: false,
       unique: true,
     },
     surface: {
-      type: String,
-      enum: ['hard', 'clay', 'indoor'],
-      default: 'hard',
+      type: DataTypes.ENUM('hard', 'clay', 'indoor'),
+      defaultValue: 'hard',
     },
     lights: {
-      type: Boolean,
-      default: false,
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
     },
     hourlyRate: {
-      type: Number,
-      required: true,
+      type: DataTypes.FLOAT,
+      allowNull: false,
     },
     status: {
-      type: String,
-      enum: ['available', 'occupied', 'maintenance'],
-      default: 'available',
+      type: DataTypes.ENUM('available', 'occupied', 'maintenance'),
+      defaultValue: 'available',
     },
     capacity: {
-      type: Number,
-      default: 4,
+      type: DataTypes.INTEGER,
+      defaultValue: 4,
     },
   },
-  { timestamps: true }
+  {
+    tableName: 'courts',
+  }
 );
 
-module.exports = mongoose.model('Court', courtSchema);
+module.exports = Court;
