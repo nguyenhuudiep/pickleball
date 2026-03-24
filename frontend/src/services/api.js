@@ -1,7 +1,22 @@
 import axios from 'axios';
 
+const resolveApiBaseUrl = () => {
+  const envUrl = import.meta.env.VITE_API_URL;
+  if (typeof envUrl === 'string' && envUrl.trim()) {
+    return envUrl.trim();
+  }
+
+  if (typeof window !== 'undefined') {
+    const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
+    return `${protocol}//${window.location.hostname}:8002/api`;
+  }
+
+  return 'http://localhost:5000/api';
+};
+
 const API = axios.create({
-  baseURL: 'http://localhost:5000/api',
+  baseURL: resolveApiBaseUrl(),
+  timeout: 15000,
 });
 
 // Add token to requests
