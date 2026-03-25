@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Layout } from '../components/Layout';
 import { AppSelect } from '../components/AppSelect';
 import { Edit2, Trash2, Save, X, Plus, Search } from 'lucide-react';
+import { authAPI, userAPI } from '../services/api';
 
 const roleOptions = [
   { value: 'member', label: 'Thành Viên' },
@@ -109,12 +110,7 @@ export const UsersPage = () => {
 
   const fetchUsers = async () => {
     try {
-      const response = await fetch('http://localhost:5000/api/users', {
-        headers: {
-          Authorization: `Bearer ${localStorage.getItem('token')}`,
-        },
-      });
-      const data = await response.json();
+      const { data } = await userAPI.getAll();
       if (data.success) {
         setUsers(data.users);
       }
@@ -127,15 +123,7 @@ export const UsersPage = () => {
   const handleAddUser = async (e) => {
     e.preventDefault();
     try {
-      const response = await fetch('http://localhost:5000/api/auth/register', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${localStorage.getItem('token')}`,
-        },
-        body: JSON.stringify(formData),
-      });
-      const data = await response.json();
+      const { data } = await authAPI.register(formData);
       if (data.success) {
         setFormData({ name: '', username: '', password: '', role: 'member', permissions: defaultPermissionsByRole.member });
         setSelectedCreatePreset('member-basic');
@@ -194,15 +182,7 @@ export const UsersPage = () => {
 
   const handleSaveUser = async (userId) => {
     try {
-      const response = await fetch(`http://localhost:5000/api/users/${userId}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${localStorage.getItem('token')}`,
-        },
-        body: JSON.stringify(editData),
-      });
-      const data = await response.json();
+      const { data } = await userAPI.update(userId, editData);
       if (data.success) {
         setEditingId(null);
         fetchUsers();
@@ -218,13 +198,7 @@ export const UsersPage = () => {
   const handleDelete = async (userId) => {
     if (window.confirm('Bạn có chắc chắn muốn xóa người dùng này?')) {
       try {
-        const response = await fetch(`http://localhost:5000/api/users/${userId}`, {
-          method: 'DELETE',
-          headers: {
-            Authorization: `Bearer ${localStorage.getItem('token')}`,
-          },
-        });
-        const data = await response.json();
+        const { data } = await userAPI.delete(userId);
         if (data.success) {
           fetchUsers();
         }

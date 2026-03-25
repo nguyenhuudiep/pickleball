@@ -62,6 +62,14 @@ export const authAPI = {
   getMe: () => API.get('/auth/me'),
 };
 
+// User services
+export const userAPI = {
+  getAll: () => API.get('/users'),
+  getById: (id) => API.get(`/users/${id}`),
+  update: (id, data) => API.put(`/users/${id}`, data),
+  delete: (id) => API.delete(`/users/${id}`),
+};
+
 // Member services
 export const memberAPI = {
   getAll: () => API.get('/members'),
