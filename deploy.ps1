@@ -176,7 +176,7 @@ try {
       Assert-LastExitCode -Context "git fetch"
       git checkout $Branch
       Assert-LastExitCode -Context "git checkout $Branch"
-      git pull origin $Branch
+      git pull --rebase --autostash origin $Branch
       Assert-LastExitCode -Context "git pull"
     }
   }
