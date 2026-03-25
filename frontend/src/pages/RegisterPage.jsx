@@ -1,14 +1,6 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { AppSelect } from '../components/AppSelect';
-
-const roleOptions = [
-  { value: 'member', label: 'Thành Viên' },
-  { value: 'admin', label: 'Quản Trị Viên' },
-];
-
-const getSelectedOption = (options, value) => options.find((option) => option.value === value) || null;
 
 export const RegisterPage = () => {
   const [formData, setFormData] = useState({
@@ -16,7 +8,6 @@ export const RegisterPage = () => {
     username: '',
     password: '',
     confirmPassword: '',
-    role: 'member',
   });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -43,7 +34,7 @@ export const RegisterPage = () => {
     const result = await register({
       name: formData.name,
       username: formData.username,
-      role: formData.role,
+      role: 'member',
       password: formData.password,
     });
 
@@ -124,22 +115,6 @@ export const RegisterPage = () => {
               className="input"
               required
             />
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Loại Tài Khoản
-            </label>
-            <AppSelect
-              options={roleOptions}
-              value={getSelectedOption(roleOptions, formData.role)}
-              onChange={(selected) =>
-                setFormData({
-                  ...formData,
-                  role: selected?.value || 'member',
-                })
-              }
-            />
-          </div>
           </div>
 
           <button
