@@ -193,7 +193,14 @@ try {
   Write-Host "Deploy completed." -ForegroundColor Green
   Write-Host "Frontend build output: frontend/dist" -ForegroundColor Green
   if ($BackendMode -eq "pm2" -and -not $BackendRestartCommand.Trim()) {
-    Write-Host "Tip: run 'pm2 startup' once on the server to auto-start PM2 apps after reboot." -ForegroundColor Yellow
+    if ($env:OS -eq "Windows_NT") {
+      Write-Host "Windows server detected: 'pm2 startup' is not supported here." -ForegroundColor Yellow
+      Write-Host "Create a startup task once: schtasks /Create /TN \"PM2Resurrect\" /SC ONSTART /RL HIGHEST /TR \"cmd /c pm2 resurrect\" /F" -ForegroundColor Yellow
+      Write-Host "Keep process list updated after deploy: pm2 save" -ForegroundColor Yellow
+    }
+    else {
+      Write-Host "Tip: run 'pm2 startup' once on the server to auto-start PM2 apps after reboot." -ForegroundColor Yellow
+    }
   }
 }
 finally {
