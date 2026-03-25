@@ -62,6 +62,21 @@ function Ensure-Pm2 {
   }
 }
 
+function Invoke-Pm2Cmd {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$Arguments,
+    [switch]$CaptureOutput
+  )
+
+  $fullCmd = "pm2 $Arguments"
+  if ($CaptureOutput) {
+    return cmd /c $fullCmd 2>&1 | Out-String
+  }
+
+  cmd /c $fullCmd
+}
+
 function Restart-BackendWithPm2 {
   param(
     [Parameter(Mandatory = $true)]
@@ -70,29 +85,21 @@ function Restart-BackendWithPm2 {
 
   Push-Location "backend"
   try {
-    $appsRaw = pm2 jlist | Out-String
+    $appsRaw = Invoke-Pm2Cmd -Arguments "jlist" -CaptureOutput
     Assert-LastExitCode -Context "pm2 jlist"
-    $appExists = $false
-    $trimmed = $appsRaw.Trim()
-    if ($trimmed) {
-      $apps = $trimmed | ConvertFrom-Json
-      if ($apps -is [System.Array]) {
-        $appExists = @($apps | Where-Object { $_.name -eq $AppName }).Count -gt 0
-      }
-      else {
-        $appExists = $apps.name -eq $AppName
-      }
-    }
+    $escapedAppName = [regex]::Escape($AppName)
+    $appExists = $appsRaw -match '"name"\s*:\s*"' + $escapedAppName + '"'
 
     if ($appExists) {
-      pm2 restart $AppName --update-env
+      Invoke-Pm2Cmd -Arguments "restart $AppName --update-env"
       Assert-LastExitCode -Context "pm2 restart $AppName"
     }
     else {
-      pm2 start server.js --name $AppName --cwd (Get-Location).Path
+      $cwd = (Get-Location).Path
+      Invoke-Pm2Cmd -Arguments "start server.js --name $AppName --cwd `"$cwd`""
       Assert-LastExitCode -Context "pm2 start $AppName"
     }
-    pm2 save
+    Invoke-Pm2Cmd -Arguments "save"
     Assert-LastExitCode -Context "pm2 save"
     Write-Host "Backend is managed by PM2 as '$AppName'." -ForegroundColor Green
   }
