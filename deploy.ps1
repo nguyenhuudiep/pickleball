@@ -7,7 +7,8 @@ param(
   [ValidateSet("pm2", "detached", "manual")]
   [string]$BackendMode = "pm2",
   [string]$Pm2AppName = "pickleball-backend",
-  [int]$BackendPort = 5000
+  [int]$BackendPort = 5000,
+  [switch]$EnablePm2StartupTask
 )
 
 Set-StrictMode -Version Latest
@@ -123,6 +124,31 @@ function Restart-BackendDetached {
   Write-Host "Backend started in detached mode via node server.js." -ForegroundColor Green
 }
 
+function Ensure-Pm2StartupTask {
+  if ($env:OS -ne "Windows_NT") {
+    Write-Host "Skipping Windows startup task setup on non-Windows OS." -ForegroundColor Yellow
+    return
+  }
+
+  $taskName = "PM2Resurrect"
+  $taskCmd = 'schtasks /Create /TN "PM2Resurrect" /SC ONSTART /RL HIGHEST /TR "cmd /c pm2 resurrect" /F'
+
+  try {
+    schtasks /Query /TN $taskName *> $null
+    if ($LASTEXITCODE -eq 0) {
+      Write-Host "Startup task '$taskName' already exists. Updating it..." -ForegroundColor Yellow
+    }
+
+    cmd /c $taskCmd
+    Assert-LastExitCode -Context "Create or update startup task $taskName"
+    Write-Host "Startup task '$taskName' is configured." -ForegroundColor Green
+  }
+  catch {
+    Write-Host "Could not create startup task '$taskName'. Run PowerShell as Administrator and try again." -ForegroundColor Yellow
+    Write-Host $_.Exception.Message -ForegroundColor Yellow
+  }
+}
+
 Push-Location $PSScriptRoot
 
 try {
@@ -194,8 +220,15 @@ try {
   Write-Host "Frontend build output: frontend/dist" -ForegroundColor Green
   if ($BackendMode -eq "pm2" -and -not $BackendRestartCommand.Trim()) {
     if ($env:OS -eq "Windows_NT") {
-      Write-Host "Windows server detected: 'pm2 startup' is not supported here." -ForegroundColor Yellow
-      Write-Host "Create a startup task once: schtasks /Create /TN \"PM2Resurrect\" /SC ONSTART /RL HIGHEST /TR \"cmd /c pm2 resurrect\" /F" -ForegroundColor Yellow
+      if ($EnablePm2StartupTask) {
+        Invoke-Step -Message "Configure PM2 startup task on Windows" -Action {
+          Ensure-Pm2StartupTask
+        }
+      }
+      else {
+        Write-Host "Windows server detected: 'pm2 startup' is not supported here." -ForegroundColor Yellow
+        Write-Host "Run with -EnablePm2StartupTask to auto-create PM2Resurrect startup task." -ForegroundColor Yellow
+      }
       Write-Host "Keep process list updated after deploy: pm2 save" -ForegroundColor Yellow
     }
     else {
