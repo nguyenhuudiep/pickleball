@@ -13,6 +13,17 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+function Assert-LastExitCode {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$Context
+  )
+
+  if ($LASTEXITCODE -ne 0) {
+    throw "$Context failed with exit code $LASTEXITCODE"
+  }
+}
+
 function Invoke-Step {
   param(
     [Parameter(Mandatory = $true)]
@@ -33,9 +44,11 @@ function Install-NodeDeps {
 
   if (Test-Path "package-lock.json") {
     npm ci
+    Assert-LastExitCode -Context "npm ci"
   }
   else {
     npm install
+    Assert-LastExitCode -Context "npm install"
   }
 }
 
@@ -44,6 +57,7 @@ function Ensure-Pm2 {
   if (-not $pm2Cmd) {
     Write-Host "PM2 not found. Installing globally..." -ForegroundColor Yellow
     npm install -g pm2
+    Assert-LastExitCode -Context "npm install -g pm2"
   }
 }
 
@@ -55,14 +69,30 @@ function Restart-BackendWithPm2 {
 
   Push-Location "backend"
   try {
-    pm2 describe $AppName *> $null
-    if ($LASTEXITCODE -eq 0) {
+    $appsRaw = pm2 jlist | Out-String
+    Assert-LastExitCode -Context "pm2 jlist"
+    $appExists = $false
+    $trimmed = $appsRaw.Trim()
+    if ($trimmed) {
+      $apps = $trimmed | ConvertFrom-Json
+      if ($apps -is [System.Array]) {
+        $appExists = @($apps | Where-Object { $_.name -eq $AppName }).Count -gt 0
+      }
+      else {
+        $appExists = $apps.name -eq $AppName
+      }
+    }
+
+    if ($appExists) {
       pm2 restart $AppName --update-env
+      Assert-LastExitCode -Context "pm2 restart $AppName"
     }
     else {
       pm2 start server.js --name $AppName --cwd (Get-Location).Path
+      Assert-LastExitCode -Context "pm2 start $AppName"
     }
     pm2 save
+    Assert-LastExitCode -Context "pm2 save"
     Write-Host "Backend is managed by PM2 as '$AppName'." -ForegroundColor Green
   }
   finally {
@@ -103,8 +133,11 @@ try {
   if (-not $SkipGitPull) {
     Invoke-Step -Message "Update source code from origin/$Branch" -Action {
       git fetch origin
+      Assert-LastExitCode -Context "git fetch"
       git checkout $Branch
+      Assert-LastExitCode -Context "git checkout $Branch"
       git pull origin $Branch
+      Assert-LastExitCode -Context "git pull"
     }
   }
 
@@ -113,6 +146,7 @@ try {
     Set-Content -Path ".env.production" -Value "VITE_API_URL=$ApiUrl" -Encoding ascii
     Install-NodeDeps
     npm run build
+    Assert-LastExitCode -Context "npm run build"
     Pop-Location
   }
 
