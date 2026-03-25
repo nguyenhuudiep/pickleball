@@ -13,6 +13,7 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+$script:Pm2Executable = "pm2"
 
 function Assert-LastExitCode {
   param(
@@ -54,12 +55,18 @@ function Install-NodeDeps {
 }
 
 function Ensure-Pm2 {
-  $pm2Cmd = Get-Command pm2 -ErrorAction SilentlyContinue
+  $pm2Cmd = Get-Command pm2.cmd -ErrorAction SilentlyContinue
   if (-not $pm2Cmd) {
     Write-Host "PM2 not found. Installing globally..." -ForegroundColor Yellow
     npm install -g pm2
     Assert-LastExitCode -Context "npm install -g pm2"
+    $pm2Cmd = Get-Command pm2.cmd -ErrorAction SilentlyContinue
+    if (-not $pm2Cmd) {
+      throw "pm2.cmd was not found after installation"
+    }
   }
+
+  $script:Pm2Executable = $pm2Cmd.Source
 }
 
 function Invoke-Pm2Cmd {
@@ -69,7 +76,7 @@ function Invoke-Pm2Cmd {
     [switch]$CaptureOutput
   )
 
-  $fullCmd = "pm2 $Arguments"
+  $fullCmd = '"' + $script:Pm2Executable + '" ' + $Arguments
   if ($CaptureOutput) {
     return cmd /c $fullCmd 2>&1 | Out-String
   }
