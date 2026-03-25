@@ -1,6 +1,6 @@
 param(
   [string]$Branch = "main",
-  [string]$ApiUrl = "http://103.35.65.57:8002/api",
+  [string]$ApiUrl = "http://103.35.65.57:5000/api",
   [switch]$SkipGitPull,
   [switch]$SkipNpmInstall,
   [string]$BackendRestartCommand = "",
