@@ -166,22 +166,35 @@ function Ensure-Pm2StartupTask {
 Push-Location $PSScriptRoot
 
 try {
+  $gitSyncSucceeded = $true
+
   Invoke-Step -Message "Deploy started in $PSScriptRoot" -Action {
     git status --short
   }
 
   if (-not $SkipGitPull) {
     Invoke-Step -Message "Update source code from origin/$Branch" -Action {
-      git fetch origin
-      Assert-LastExitCode -Context "git fetch"
-      git checkout $Branch
-      Assert-LastExitCode -Context "git checkout $Branch"
-      git pull --rebase --autostash origin $Branch
-      Assert-LastExitCode -Context "git pull"
+      try {
+        git fetch origin
+        Assert-LastExitCode -Context "git fetch"
+        git checkout $Branch
+        Assert-LastExitCode -Context "git checkout $Branch"
+        git pull --rebase --autostash origin $Branch
+        Assert-LastExitCode -Context "git pull"
+      }
+      catch {
+        $gitSyncSucceeded = $false
+        Write-Host "Git sync failed. Continuing deploy with current local code." -ForegroundColor Yellow
+        Write-Host $_.Exception.Message -ForegroundColor Yellow
+      }
     }
   }
 
   Invoke-Step -Message "Build frontend with production API URL" -Action {
+    if ($ApiUrl -match "localhost|127\.0\.0\.1") {
+      throw "ApiUrl must not use localhost/127.0.0.1 for server deployment. Use the server IP or domain."
+    }
+
     Push-Location "frontend"
     Set-Content -Path ".env.production" -Value "VITE_API_URL=$ApiUrl" -Encoding ascii
     Install-NodeDeps
@@ -232,6 +245,9 @@ try {
 
   Write-Host "Deploy completed." -ForegroundColor Green
   Write-Host "Frontend build output: frontend/dist" -ForegroundColor Green
+  if (-not $gitSyncSucceeded) {
+    Write-Host "Warning: deployment used local code because git sync failed." -ForegroundColor Yellow
+  }
   if ($BackendMode -eq "pm2" -and -not $BackendRestartCommand.Trim()) {
     if ($env:OS -eq "Windows_NT") {
       if ($EnablePm2StartupTask) {

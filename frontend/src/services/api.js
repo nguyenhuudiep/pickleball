@@ -1,14 +1,41 @@
 import axios from 'axios';
 
+const normalizeApiUrl = (rawUrl) => {
+  if (typeof rawUrl !== 'string' || !rawUrl.trim()) {
+    return '';
+  }
+
+  const trimmed = rawUrl.trim();
+
+  if (typeof window === 'undefined') {
+    return trimmed;
+  }
+
+  // Avoid loopback URLs in browser when app is accessed from a remote host.
+  if (/(localhost|127\.0\.0\.1)/i.test(trimmed)) {
+    try {
+      const parsed = new URL(trimmed);
+      parsed.hostname = window.location.hostname;
+      return parsed.toString().replace(/\/$/, '');
+    }
+    catch (_err) {
+      const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
+      return `${protocol}//${window.location.hostname}:5000/api`;
+    }
+  }
+
+  return trimmed;
+};
+
 const resolveApiBaseUrl = () => {
-  const envUrl = import.meta.env.VITE_API_URL;
-  if (typeof envUrl === 'string' && envUrl.trim()) {
-    return envUrl.trim();
+  const envUrl = normalizeApiUrl(import.meta.env.VITE_API_URL);
+  if (envUrl) {
+    return envUrl;
   }
 
   if (typeof window !== 'undefined') {
     const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
-    return `${protocol}//${window.location.hostname}:8002/api`;
+    return `${protocol}//${window.location.hostname}:5000/api`;
   }
 
   return 'http://localhost:5000/api';
