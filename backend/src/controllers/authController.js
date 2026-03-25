@@ -31,7 +31,7 @@ const defaultPermissionsByRole = {
 
 exports.register = async (req, res) => {
   try {
-    const { name, username, password, role, permissions } = req.body;
+    const { name, username, password } = req.body;
 
     // Validate input
     if (!name || !username || !password) {
@@ -47,14 +47,14 @@ exports.register = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Tên đăng nhập đã được đăng ký' });
     }
 
-    const normalizedRole = role || 'member';
+    const normalizedRole = 'member';
 
     const user = await User.create({
       name,
       username: String(username).toLowerCase().trim(),
       password,
       role: normalizedRole,
-      permissions: Array.isArray(permissions) && permissions.length ? permissions : (defaultPermissionsByRole[normalizedRole] || defaultPermissionsByRole.member),
+      permissions: defaultPermissionsByRole.member,
     });
 
     const token = generateToken(user.id, user.role);
