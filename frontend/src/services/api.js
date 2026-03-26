@@ -124,6 +124,7 @@ export const tournamentAPI = {
   create: (data) => API.post('/tournaments', data),
   update: (id, data) => API.put(`/tournaments/${id}`, data),
   updateParticipants: (id, participants) => API.put(`/tournaments/${id}/participants`, { participants }),
+  updateFinance: (id, data) => API.put(`/tournaments/${id}/finance`, data),
   delete: (id) => API.delete(`/tournaments/${id}`),
   getMemberHistory: (memberId) => API.get(`/tournaments/member/${memberId}`),
   getPublicMemberHistory: (memberId) => API.get(`/tournaments/public/member/${memberId}`),

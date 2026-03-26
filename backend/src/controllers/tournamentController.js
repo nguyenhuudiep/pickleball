@@ -46,6 +46,98 @@ const normalizeParticipantsPayload = (participants = []) => {
     .filter(Boolean);
 };
 
+const toNumber = (value) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const parseFinanceItems = (rawJson) => {
+  if (!rawJson || typeof rawJson !== 'string') {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(rawJson);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (_error) {
+    return [];
+  }
+};
+
+const normalizeFinanceItemsPayload = (items = []) => {
+  const incoming = Array.isArray(items) ? items : [];
+
+  return incoming
+    .map((item) => {
+      const description = String(item?.description || '').trim();
+      const type = item?.type === 'expense' ? 'expense' : 'income';
+      const amount = toNumber(item?.amount);
+
+      if (!description && amount <= 0) {
+        return null;
+      }
+
+      return {
+        description: description || (type === 'income' ? 'Khoản thu' : 'Khoản chi'),
+        type,
+        amount,
+      };
+    })
+    .filter(Boolean);
+};
+
+const getFinanceTotals = (items = []) => {
+  const normalized = normalizeFinanceItemsPayload(items);
+  let incomeTotal = 0;
+  let expenseTotal = 0;
+
+  for (const item of normalized) {
+    if (item.type === 'expense') {
+      expenseTotal += item.amount;
+    } else {
+      incomeTotal += item.amount;
+    }
+  }
+
+  return {
+    normalized,
+    incomeTotal,
+    expenseTotal,
+  };
+};
+
+const getParticipantNumericMemberId = (participant) => {
+  const rawMemberId = participant?.memberId?.id ?? participant?.memberId?._id ?? participant?.memberId;
+  const parsed = Number(rawMemberId);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const getCollectedFeeAmount = (participants = []) => {
+  const pairSeen = new Set();
+
+  return participants.reduce((total, participant) => {
+    if (!participant?.feePaid) {
+      return total;
+    }
+
+    const feeAmount = toNumber(participant.feeAmount);
+    const memberId = getParticipantNumericMemberId(participant);
+    const partnerMemberId = toNumber(participant.partnerMemberId || 0);
+
+    if (memberId && partnerMemberId) {
+      const first = Math.min(memberId, partnerMemberId);
+      const second = Math.max(memberId, partnerMemberId);
+      const pairKey = `${first}-${second}`;
+      if (pairSeen.has(pairKey)) {
+        return total;
+      }
+      pairSeen.add(pairKey);
+    }
+
+    return total + feeAmount;
+  }, 0);
+};
+
 const mapTournament = (record) => {
   const mapped = withMongoId(record);
   if (!mapped) return mapped;
@@ -60,8 +152,20 @@ const mapTournament = (record) => {
     };
   });
 
+  const collectedFeeAmount = getCollectedFeeAmount(participants);
+  const financeItems = parseFinanceItems(mapped.financeItemsJson);
+  const { normalized: normalizedFinanceItems, incomeTotal, expenseTotal } = getFinanceTotals(financeItems);
+
+  const sponsorshipAmount = normalizedFinanceItems.length > 0 ? incomeTotal : toNumber(mapped.sponsorshipAmount);
+  const expenseAmount = normalizedFinanceItems.length > 0 ? expenseTotal : toNumber(mapped.expenseAmount);
+
   return {
     ...mapped,
+    expenseAmount,
+    sponsorshipAmount,
+    financeItems: normalizedFinanceItems,
+    collectedFeeAmount,
+    profitAmount: collectedFeeAmount + sponsorshipAmount - expenseAmount,
     participants,
   };
 };
@@ -81,13 +185,19 @@ exports.getTournaments = async (req, res) => {
 
 exports.createTournament = async (req, res) => {
   try {
-    const { name, date, location, description, participants } = req.body;
+    const { name, date, location, description, participants, expenseAmount, sponsorshipAmount, financeItems } = req.body;
+    const finance = getFinanceTotals(financeItems);
+    const resolvedSponsorship = finance.normalized.length > 0 ? finance.incomeTotal : toNumber(sponsorshipAmount);
+    const resolvedExpense = finance.normalized.length > 0 ? finance.expenseTotal : toNumber(expenseAmount);
 
     const tournament = await Tournament.create({
       name,
       date,
       location,
       description,
+      expenseAmount: resolvedExpense,
+      sponsorshipAmount: resolvedSponsorship,
+      financeItemsJson: JSON.stringify(finance.normalized),
     });
 
     const incomingParticipants = normalizeParticipantsPayload(participants);
@@ -116,7 +226,10 @@ exports.createTournament = async (req, res) => {
 
 exports.updateTournament = async (req, res) => {
   try {
-    const { name, date, location, description, participants } = req.body;
+    const { name, date, location, description, participants, expenseAmount, sponsorshipAmount, financeItems } = req.body;
+    const finance = getFinanceTotals(financeItems);
+    const resolvedSponsorship = finance.normalized.length > 0 ? finance.incomeTotal : toNumber(sponsorshipAmount);
+    const resolvedExpense = finance.normalized.length > 0 ? finance.expenseTotal : toNumber(expenseAmount);
 
     const tournament = await Tournament.findByPk(req.params.id);
 
@@ -124,7 +237,15 @@ exports.updateTournament = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Giải đấu không tồn tại' });
     }
 
-    await tournament.update({ name, date, location, description });
+    await tournament.update({
+      name,
+      date,
+      location,
+      description,
+      expenseAmount: resolvedExpense,
+      sponsorshipAmount: resolvedSponsorship,
+      financeItemsJson: JSON.stringify(finance.normalized),
+    });
 
     await TournamentParticipant.destroy({ where: { tournamentId: tournament.id } });
 
@@ -205,6 +326,38 @@ exports.updateTournamentParticipants = async (req, res) => {
       success: true,
       tournament: mapTournament(fullTournament),
       message: 'Cập nhật danh sách vận động viên thành công',
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.updateTournamentFinance = async (req, res) => {
+  try {
+    const tournament = await Tournament.findByPk(req.params.id);
+
+    if (!tournament) {
+      return res.status(404).json({ success: false, message: 'Giải đấu không tồn tại' });
+    }
+
+    const finance = getFinanceTotals(req.body?.financeItems);
+    const expenseAmount = finance.expenseTotal;
+    const sponsorshipAmount = finance.incomeTotal;
+
+    await tournament.update({
+      expenseAmount,
+      sponsorshipAmount,
+      financeItemsJson: JSON.stringify(finance.normalized),
+    });
+
+    const fullTournament = await Tournament.findByPk(tournament.id, {
+      include: tournamentInclude,
+    });
+
+    res.status(200).json({
+      success: true,
+      tournament: mapTournament(fullTournament),
+      message: 'Cập nhật thu chi giải đấu thành công',
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });

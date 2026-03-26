@@ -5,6 +5,7 @@ const {
   createTournament,
   updateTournament,
   updateTournamentParticipants,
+  updateTournamentFinance,
   deleteTournament,
   getMemberTournamentHistory,
   getPublicMemberTournamentHistory,
@@ -19,6 +20,7 @@ router.get('/:id', protect, requirePermission('view_tournaments'), getTournament
 router.post('/', protect, requirePermission('manage_tournaments'), createTournament);
 router.get('/member/:memberId', protect, requirePermission('view_tournaments'), getMemberTournamentHistory);
 router.put('/:id/participants', protect, requirePermission('manage_tournaments'), updateTournamentParticipants);
+router.put('/:id/finance', protect, requirePermission('manage_tournaments'), updateTournamentFinance);
 router.put('/:id', protect, requirePermission('manage_tournaments'), updateTournament);
 router.delete('/:id', protect, requirePermission('manage_tournaments'), deleteTournament);
 

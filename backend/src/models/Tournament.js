@@ -27,6 +27,21 @@ const Tournament = sequelize.define(
       allowNull: true,
       defaultValue: '',
     },
+    expenseAmount: {
+      type: DataTypes.FLOAT,
+      allowNull: false,
+      defaultValue: 0,
+    },
+    sponsorshipAmount: {
+      type: DataTypes.FLOAT,
+      allowNull: false,
+      defaultValue: 0,
+    },
+    financeItemsJson: {
+      type: DataTypes.TEXT,
+      allowNull: false,
+      defaultValue: '[]',
+    },
   },
   {
     tableName: 'tournaments',

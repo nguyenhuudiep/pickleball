@@ -10,8 +10,19 @@ const getDefaultFormData = () => ({
   date: new Date().toISOString().split('T')[0],
   location: '',
   description: '',
+  expenseAmount: 0,
+  sponsorshipAmount: 0,
   participants: [],
 });
+
+const formatCurrencyVND = (value) => {
+  const amount = Number(value || 0);
+  return new Intl.NumberFormat('vi-VN', {
+    style: 'currency',
+    currency: 'VND',
+    maximumFractionDigits: 0,
+  }).format(Number.isFinite(amount) ? amount : 0);
+};
 
 export const TournamentsPage = () => {
   const { hasPermission } = useAuth();
@@ -65,6 +76,8 @@ export const TournamentsPage = () => {
       date: tournament.date ? new Date(tournament.date).toISOString().split('T')[0] : getDefaultFormData().date,
       location: tournament.location || '',
       description: tournament.description || '',
+      expenseAmount: Number(tournament.expenseAmount || 0),
+      sponsorshipAmount: Number(tournament.sponsorshipAmount || 0),
       participants: tournament.participants || [],
     });
   };
@@ -85,6 +98,8 @@ export const TournamentsPage = () => {
     setEditingId(null);
     setFormData(getDefaultFormData());
   };
+
+  const estimatedProfit = Number(formData.sponsorshipAmount || 0) - Number(formData.expenseAmount || 0);
 
   return (
     <Layout>
@@ -141,6 +156,28 @@ export const TournamentsPage = () => {
                     className="input"
                   />
                 </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Khoản Tài Trợ (VND)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1000"
+                    value={formData.sponsorshipAmount}
+                    onChange={(e) => setFormData({ ...formData, sponsorshipAmount: Number(e.target.value || 0) })}
+                    className="input"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Khoản Chi (VND)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1000"
+                    value={formData.expenseAmount}
+                    onChange={(e) => setFormData({ ...formData, expenseAmount: Number(e.target.value || 0) })}
+                    className="input"
+                  />
+                </div>
               </div>
 
               <div>
@@ -151,6 +188,11 @@ export const TournamentsPage = () => {
                   className="input"
                   rows="2"
                 />
+              </div>
+
+              <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3">
+                <p className="text-sm text-blue-700">Lợi nhuận tạm tính (chưa gồm lệ phí VĐV)</p>
+                <p className="text-lg font-bold text-blue-800">{formatCurrencyVND(estimatedProfit)}</p>
               </div>
 
               <div className="flex gap-2">

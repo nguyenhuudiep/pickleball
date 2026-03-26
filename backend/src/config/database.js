@@ -132,6 +132,32 @@ const ensureTournamentParticipantColumns = async () => {
   `);
 };
 
+const ensureTournamentFinancialColumns = async () => {
+  await sequelize.query(`
+    IF COL_LENGTH('tournaments', 'expenseAmount') IS NULL
+    BEGIN
+      ALTER TABLE [tournaments]
+      ADD [expenseAmount] FLOAT NOT NULL CONSTRAINT [DF_tournaments_expenseAmount] DEFAULT 0;
+    END
+  `);
+
+  await sequelize.query(`
+    IF COL_LENGTH('tournaments', 'sponsorshipAmount') IS NULL
+    BEGIN
+      ALTER TABLE [tournaments]
+      ADD [sponsorshipAmount] FLOAT NOT NULL CONSTRAINT [DF_tournaments_sponsorshipAmount] DEFAULT 0;
+    END
+  `);
+
+  await sequelize.query(`
+    IF COL_LENGTH('tournaments', 'financeItemsJson') IS NULL
+    BEGIN
+      ALTER TABLE [tournaments]
+      ADD [financeItemsJson] NVARCHAR(MAX) NOT NULL CONSTRAINT [DF_tournaments_financeItemsJson] DEFAULT '[]';
+    END
+  `);
+};
+
 const connectDB = async () => {
   try {
     await sequelize.authenticate();
@@ -142,6 +168,7 @@ const connectDB = async () => {
     await dropMongoIdColumnArtifacts();
     await normalizeDateTimeColumns();
     await ensureTournamentParticipantColumns();
+    await ensureTournamentFinancialColumns();
 
     const adminCount = await User.count({ where: { role: 'admin' } });
     if (adminCount === 0) {

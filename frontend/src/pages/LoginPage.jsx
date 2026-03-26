@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
 export const LoginPage = () => {
@@ -74,13 +74,6 @@ export const LoginPage = () => {
             {loading ? 'Đang đăng nhập...' : 'Đăng Nhập'}
           </button>
         </form>
-
-        <p className="text-center mt-6 text-gray-600">
-          Chưa có tài khoản?{' '}
-          <Link to="/register" className="text-teal-600 hover:underline font-medium">
-            Đăng ký tại đây
-          </Link>
-        </p>
       </div>
     </div>
   );

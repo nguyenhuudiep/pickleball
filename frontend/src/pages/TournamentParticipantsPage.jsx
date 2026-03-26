@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Check, CheckCircle2, Clock3, Pencil, Save, Search, Trash2, X } from 'lucide-react';
+import { ArrowLeft, Check, CheckCircle2, Clock3, Pencil, Plus, Save, Search, Trash2, X } from 'lucide-react';
 import { Layout } from '../components/Layout';
 import { memberAPI, tournamentAPI } from '../services/api';
 
@@ -33,18 +33,28 @@ const formatSkillLevel = (value) => {
   return numeric.toFixed(1);
 };
 
+const getDefaultFinanceItem = () => ({
+  id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+  description: '',
+  type: 'income',
+  amount: 0,
+});
+
 export const TournamentParticipantsPage = () => {
   const { id } = useParams();
   const navigate = useNavigate();
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [savingFinance, setSavingFinance] = useState(false);
   const [tournament, setTournament] = useState(null);
+  const [activeTab, setActiveTab] = useState('participants');
   const [members, setMembers] = useState([]);
   const [pairs, setPairs] = useState([]);
   const [pendingSelection, setPendingSelection] = useState([]);
   const [editingPairId, setEditingPairId] = useState(null);
   const [editingDraft, setEditingDraft] = useState({ member1Id: '', member2Id: '' });
+  const [financeItems, setFinanceItems] = useState([getDefaultFinanceItem()]);
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
   const [memberSearchTerm, setMemberSearchTerm] = useState('');
@@ -60,6 +70,28 @@ export const TournamentParticipantsPage = () => {
 
         const tournamentData = tournamentRes.data.tournament;
         setTournament(tournamentData);
+        const initialFinanceItems = Array.isArray(tournamentData.financeItems) && tournamentData.financeItems.length > 0
+          ? tournamentData.financeItems.map((item, index) => ({
+              id: `server-${index}-${Date.now()}`,
+              description: item.description || '',
+              type: item.type === 'expense' ? 'expense' : 'income',
+              amount: Number(item.amount || 0),
+            }))
+          : [
+              {
+                id: `legacy-income-${Date.now()}`,
+                description: 'Tài trợ',
+                type: 'income',
+                amount: Number(tournamentData.sponsorshipAmount || 0),
+              },
+              {
+                id: `legacy-expense-${Date.now()}`,
+                description: 'Chi phí tổ chức giải',
+                type: 'expense',
+                amount: Number(tournamentData.expenseAmount || 0),
+              },
+            ];
+        setFinanceItems(initialFinanceItems);
         setMembers((membersRes.data.members || []).map((member) => ({ ...member, _id: String(member._id) })));
         const normalizedParticipants = (tournamentData.participants || []).map((participant) => ({
           memberId: normalizeId(participant.memberId?._id || participant.memberId),
@@ -259,6 +291,26 @@ export const TournamentParticipantsPage = () => {
     }, 0);
   }, [pairs]);
 
+  const financeIncomeAmount = useMemo(
+    () => financeItems.reduce((sum, item) => (item.type === 'income' ? sum + Number(item.amount || 0) : sum), 0),
+    [financeItems]
+  );
+
+  const financeExpenseAmount = useMemo(
+    () => financeItems.reduce((sum, item) => (item.type === 'expense' ? sum + Number(item.amount || 0) : sum), 0),
+    [financeItems]
+  );
+
+  const totalIncomeAmount = useMemo(
+    () => Number(financeIncomeAmount || 0) + Number(totalCollectedAmount || 0),
+    [financeIncomeAmount, totalCollectedAmount]
+  );
+
+  const profitAmount = useMemo(
+    () => totalIncomeAmount - Number(financeExpenseAmount || 0),
+    [totalIncomeAmount, financeExpenseAmount]
+  );
+
   const filteredMembers = useMemo(() => {
     const query = memberSearchTerm.trim().toLowerCase();
     if (!query) return members;
@@ -312,6 +364,67 @@ export const TournamentParticipantsPage = () => {
     setSaving(false);
   };
 
+  const handleSaveFinance = async () => {
+    try {
+      setSavingFinance(true);
+      setError('');
+      setSuccessMessage('');
+
+      const payloadItems = financeItems
+        .map((item) => ({
+          description: String(item.description || '').trim(),
+          type: item.type === 'expense' ? 'expense' : 'income',
+          amount: Number(item.amount || 0),
+        }))
+        .filter((item) => item.description || item.amount > 0);
+
+      const { data } = await tournamentAPI.updateFinance(id, {
+        financeItems: payloadItems,
+      });
+
+      setTournament(data.tournament);
+      const updatedItems = Array.isArray(data.tournament?.financeItems) && data.tournament.financeItems.length > 0
+        ? data.tournament.financeItems.map((item, index) => ({
+            id: `saved-${index}-${Date.now()}`,
+            description: item.description || '',
+            type: item.type === 'expense' ? 'expense' : 'income',
+            amount: Number(item.amount || 0),
+          }))
+        : [getDefaultFinanceItem()];
+      setFinanceItems(updatedItems);
+      setSuccessMessage('Lưu thu chi giải đấu thành công.');
+    } catch (err) {
+      console.error('Error saving tournament finance:', err);
+      setError(err.response?.data?.message || 'Không thể lưu thu chi giải đấu');
+      setSuccessMessage('');
+    }
+    setSavingFinance(false);
+  };
+
+  const handleAddFinanceItem = () => {
+    setFinanceItems((previous) => [...previous, getDefaultFinanceItem()]);
+  };
+
+  const handleDeleteFinanceItem = (itemId) => {
+    setFinanceItems((previous) => {
+      const remaining = previous.filter((item) => item.id !== itemId);
+      return remaining.length > 0 ? remaining : [getDefaultFinanceItem()];
+    });
+  };
+
+  const handleFinanceItemChange = (itemId, key, value) => {
+    setFinanceItems((previous) =>
+      previous.map((item) =>
+        item.id === itemId
+          ? {
+              ...item,
+              [key]: key === 'amount' ? Number(value || 0) : value,
+            }
+          : item
+      )
+    );
+  };
+
   if (loading) {
     return (
       <Layout>
@@ -352,6 +465,27 @@ export const TournamentParticipantsPage = () => {
           </div>
         )}
 
+        <div className="card p-3">
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setActiveTab('participants')}
+              className={`btn ${activeTab === 'participants' ? 'btn-primary' : 'btn-secondary'}`}
+            >
+              Ghép Cặp VĐV
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('finance')}
+              className={`btn ${activeTab === 'finance' ? 'btn-primary' : 'btn-secondary'}`}
+            >
+              Danh Sách Thu Chi
+            </button>
+          </div>
+        </div>
+
+        {activeTab === 'participants' && (
+        <>
         <div className="card space-y-4">
           <h2 className="text-lg font-semibold text-gray-800">Chọn Thành Viên Tham Gia</h2>
           <div className="flex items-center gap-2 border border-gray-200 rounded-lg px-3 py-2">
@@ -532,6 +666,113 @@ export const TournamentParticipantsPage = () => {
                   </div>
                 </div>
               ))}
+            </div>
+          </div>
+        )}
+        </>
+        )}
+
+        {activeTab === 'finance' && (
+          <div className="card space-y-4">
+            <h2 className="text-lg font-semibold text-gray-800">Danh Sách Thu Chi Của Giải</h2>
+
+            <div className="flex justify-end">
+              <button type="button" onClick={handleAddFinanceItem} className="btn btn-secondary flex items-center gap-2">
+                <Plus size={16} />
+                Thêm Dòng Thu Chi
+              </button>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b">
+                    <th className="text-left py-3 px-4">Khoản Mục</th>
+                    <th className="text-left py-3 px-4">Loại</th>
+                    <th className="text-right py-3 px-4">Số Tiền</th>
+                    <th className="text-right py-3 px-4">Thao Tác</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr className="border-b bg-green-50">
+                    <td className="py-3 px-4 font-medium">Lệ phí VĐV đã thu</td>
+                    <td className="py-3 px-4"><span className="px-2 py-1 rounded bg-green-100 text-green-700 text-xs">Thu</span></td>
+                    <td className="py-3 px-4 text-right font-semibold text-green-700">{formatCurrencyVND(totalCollectedAmount)}</td>
+                    <td className="py-3 px-4" />
+                  </tr>
+                  {financeItems.map((item) => (
+                    <tr key={item.id} className="border-b">
+                      <td className="py-3 px-4">
+                        <input
+                          type="text"
+                          placeholder="Nhập nội dung thu/chi"
+                          value={item.description}
+                          onChange={(event) => handleFinanceItemChange(item.id, 'description', event.target.value)}
+                          className="input"
+                        />
+                      </td>
+                      <td className="py-3 px-4">
+                        <select
+                          value={item.type}
+                          onChange={(event) => handleFinanceItemChange(item.id, 'type', event.target.value)}
+                          className="input"
+                        >
+                          <option value="income">Thu</option>
+                          <option value="expense">Chi</option>
+                        </select>
+                      </td>
+                      <td className="py-3 px-4">
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          value={formatCurrencyVND(item.amount)}
+                          onChange={(event) => {
+                            const rawNumber = Number(String(event.target.value || '').replace(/[^\d]/g, ''));
+                            handleFinanceItemChange(item.id, 'amount', Number.isFinite(rawNumber) ? rawNumber : 0);
+                          }}
+                          className="input text-right border-red-400 text-red-700 font-semibold focus:ring-red-500"
+                        />
+                      </td>
+                      <td className="py-3 px-4 text-right">
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteFinanceItem(item.id)}
+                          className="text-red-600 hover:text-red-800"
+                          title="Xóa dòng"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div className="rounded-lg border border-green-200 bg-green-50 p-3">
+                <p className="text-sm text-green-700">Tổng Thu</p>
+                <p className="text-lg font-bold text-green-800">{formatCurrencyVND(totalIncomeAmount)}</p>
+              </div>
+              <div className="rounded-lg border border-red-200 bg-red-50 p-3">
+                <p className="text-sm text-red-700">Tổng Chi</p>
+                <p className="text-lg font-bold text-red-800">{formatCurrencyVND(financeExpenseAmount)}</p>
+              </div>
+              <div className="rounded-lg border border-blue-200 bg-blue-50 p-3">
+                <p className="text-sm text-blue-700">Lợi Nhuận</p>
+                <p className="text-lg font-bold text-blue-800">{formatCurrencyVND(profitAmount)}</p>
+              </div>
+            </div>
+
+            <div>
+              <button
+                type="button"
+                onClick={handleSaveFinance}
+                disabled={savingFinance}
+                className="btn btn-primary"
+              >
+                {savingFinance ? 'Đang lưu thu chi...' : 'Lưu Thu Chi Giải'}
+              </button>
             </div>
           </div>
         )}
