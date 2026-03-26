@@ -1,6 +1,7 @@
 param(
   [string]$Branch = "main",
   [string]$ApiUrl = "http://103.35.65.57:5000/api",
+  [string]$FrontendPublishPath = "",
   [switch]$SkipGitPull,
   [switch]$SkipNpmInstall,
   [string]$BackendRestartCommand = "",
@@ -163,6 +164,33 @@ function Ensure-Pm2StartupTask {
   }
 }
 
+function Publish-FrontendBuild {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$TargetPath
+  )
+
+  $sourceDist = Join-Path $PSScriptRoot "frontend\dist"
+  if (-not (Test-Path $sourceDist)) {
+    throw "Frontend build output not found at $sourceDist"
+  }
+
+  if (-not (Test-Path $TargetPath)) {
+    New-Item -ItemType Directory -Path $TargetPath -Force | Out-Null
+  }
+
+  $robocopySource = $sourceDist.TrimEnd('\\')
+  $robocopyTarget = $TargetPath.TrimEnd('\\')
+
+  robocopy $robocopySource $robocopyTarget /MIR /NFL /NDL /NJH /NJS /NC /NS
+  $robocopyExit = $LASTEXITCODE
+  if ($robocopyExit -gt 7) {
+    throw "robocopy failed with exit code $robocopyExit"
+  }
+
+  Write-Host "Frontend build published to: $TargetPath" -ForegroundColor Green
+}
+
 Push-Location $PSScriptRoot
 
 try {
@@ -201,6 +229,15 @@ try {
     npm run build
     Assert-LastExitCode -Context "npm run build"
     Pop-Location
+  }
+
+  if ($FrontendPublishPath.Trim()) {
+    Invoke-Step -Message "Publish frontend build to target directory" -Action {
+      Publish-FrontendBuild -TargetPath $FrontendPublishPath
+    }
+  }
+  else {
+    Write-Host "Frontend publish path not set. Build output remains at frontend/dist." -ForegroundColor Yellow
   }
 
   Invoke-Step -Message "Install backend dependencies" -Action {
