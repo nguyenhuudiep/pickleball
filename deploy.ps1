@@ -270,13 +270,39 @@ function Publish-FrontendBuild {
     New-Item -ItemType Directory -Path $TargetPath -Force | Out-Null
   }
 
+  # Preserve IIS rewrite config that may exist only on server target.
+  $targetWebConfig = Join-Path $TargetPath "web.config"
+  $sourceWebConfig = Join-Path $sourceDist "web.config"
+  $backupWebConfig = Join-Path $env:TEMP ("pickleball-web.config.{0}.bak" -f ([guid]::NewGuid().ToString("N")))
+  $hadTargetWebConfig = Test-Path $targetWebConfig
+  if ($hadTargetWebConfig) {
+    Copy-Item -Path $targetWebConfig -Destination $backupWebConfig -Force
+    Write-Host "Preserved existing web.config from target before publish." -ForegroundColor Yellow
+  }
+
   $robocopySource = $sourceDist.TrimEnd('\\')
   $robocopyTarget = $TargetPath.TrimEnd('\\')
 
-  robocopy $robocopySource $robocopyTarget /MIR /NFL /NDL /NJH /NJS /NC /NS
-  $robocopyExit = $LASTEXITCODE
-  if ($robocopyExit -gt 7) {
-    throw "robocopy failed with exit code $robocopyExit"
+  try {
+    robocopy $robocopySource $robocopyTarget /MIR /NFL /NDL /NJH /NJS /NC /NS
+    $robocopyExit = $LASTEXITCODE
+    if ($robocopyExit -gt 7) {
+      throw "robocopy failed with exit code $robocopyExit"
+    }
+
+    if ($hadTargetWebConfig -and -not (Test-Path $sourceWebConfig)) {
+      Copy-Item -Path $backupWebConfig -Destination $targetWebConfig -Force
+      Write-Host "Restored preserved web.config to target after publish." -ForegroundColor Green
+    }
+
+    if (-not $hadTargetWebConfig -and (Test-Path $sourceWebConfig)) {
+      Write-Host "web.config was provided by frontend/dist and published to target." -ForegroundColor Green
+    }
+  }
+  finally {
+    if (Test-Path $backupWebConfig) {
+      Remove-Item -Path $backupWebConfig -Force -ErrorAction SilentlyContinue
+    }
   }
 
   Write-Host "Frontend build published to: $TargetPath" -ForegroundColor Green
