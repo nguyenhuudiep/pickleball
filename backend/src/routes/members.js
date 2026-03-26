@@ -1,6 +1,7 @@
 const express = require('express');
 const {
   getMembers,
+  getPublicMembers,
   createMember,
   getMemberById,
   updateMember,
@@ -10,6 +11,7 @@ const { protect, requirePermission } = require('../middleware/auth');
 
 const router = express.Router();
 
+router.get('/public', getPublicMembers);
 router.get('/', protect, requirePermission('view_members'), getMembers);
 router.post('/', protect, requirePermission('manage_members'), createMember);
 router.get('/:id', protect, requirePermission('view_members'), getMemberById);

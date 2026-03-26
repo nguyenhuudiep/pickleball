@@ -73,6 +73,7 @@ export const userAPI = {
 // Member services
 export const memberAPI = {
   getAll: () => API.get('/members'),
+  getPublic: () => API.get('/members/public'),
   create: (data) => API.post('/members', data),
   getById: (id) => API.get(`/members/${id}`),
   update: (id, data) => API.put(`/members/${id}`, data),

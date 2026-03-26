@@ -16,6 +16,18 @@ exports.getMembers = async (req, res) => {
   }
 };
 
+exports.getPublicMembers = async (req, res) => {
+  try {
+    const members = await Member.findAll({
+      attributes: ['id', 'name', 'membershipType', 'skillLevel', 'gender', 'status'],
+      order: [['skillLevel', 'DESC'], ['name', 'ASC']],
+    });
+    res.status(200).json({ success: true, members: withMongoIdList(members) });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 exports.createMember = async (req, res) => {
   try {
     const { name, username, password, phone, address, membershipType, skillLevel, gender } = req.body;

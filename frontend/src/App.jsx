@@ -2,6 +2,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
+import { PublicMembersPage } from './pages/PublicMembersPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { MembersPage } from './pages/MembersPage';
 import { CourtsPage } from './pages/CourtsPage';
@@ -79,6 +80,7 @@ function App() {
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
+          <Route path="/members-public" element={<PublicMembersPage />} />
           <Route
             path="/dashboard"
             element={
@@ -160,6 +162,7 @@ function App() {
             }
           />
           <Route path="/" element={<DefaultRoute />} />
+          <Route path="*" element={<DefaultRoute />} />
         </Routes>
       </AuthProvider>
     </Router>
