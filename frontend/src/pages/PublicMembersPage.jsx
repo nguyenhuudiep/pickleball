@@ -17,6 +17,12 @@ const skillFilterOptions = [
   ...skillLevelOptions.map((value) => ({ value, label: `Điểm trình ${value}` })),
 ];
 
+const itemsPerPageOptions = [
+  { value: 10, label: '10' },
+  { value: 20, label: '20' },
+  { value: 50, label: '50' },
+];
+
 const statusLabel = {
   active: 'Hoạt động',
   inactive: 'Không hoạt động',
@@ -43,6 +49,8 @@ export const PublicMembersPage = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [membershipFilter, setMembershipFilter] = useState('all');
   const [skillFilter, setSkillFilter] = useState('all');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
 
   useEffect(() => {
     const fetchPublicMembers = async () => {
@@ -69,6 +77,20 @@ export const PublicMembersPage = () => {
       .filter((member) => skillFilter === 'all' || Number(member.skillLevel ?? 0).toFixed(1) === skillFilter)
       .sort((firstMember, secondMember) => Number(secondMember.skillLevel ?? 0) - Number(firstMember.skillLevel ?? 0));
   }, [members, searchTerm, membershipFilter, skillFilter]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredMembers.length / itemsPerPage));
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const paginatedMembers = filteredMembers.slice(startIndex, startIndex + itemsPerPage);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, membershipFilter, skillFilter, itemsPerPage]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-teal-50 to-cyan-100 p-4 md:p-8">
@@ -120,7 +142,7 @@ export const PublicMembersPage = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredMembers.map((member) => (
+                  {paginatedMembers.map((member) => (
                     <tr key={member._id} className="border-b hover:bg-gray-50">
                       <td className="py-3 px-4 font-medium text-gray-800">{member.name}</td>
                       <td className="py-3 px-4">{genderLabel[member.gender] || 'Khác'}</td>
@@ -141,6 +163,43 @@ export const PublicMembersPage = () => {
                   ))}
                 </tbody>
               </table>
+
+              {!!filteredMembers.length && (
+                <div className="flex items-center justify-between px-4 py-4 border-t">
+                  <div className="flex items-center gap-3">
+                    <p className="text-sm text-gray-600">
+                      Hiển thị {startIndex + 1}-{Math.min(startIndex + itemsPerPage, filteredMembers.length)} / {filteredMembers.length} thành viên
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <label className="text-sm text-gray-600">Số dòng/trang:</label>
+                      <div className="w-24">
+                        <AppSelect
+                          options={itemsPerPageOptions}
+                          value={getSelectedOption(itemsPerPageOptions, itemsPerPage)}
+                          onChange={(selected) => setItemsPerPage(Number(selected?.value || 10))}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setCurrentPage((previousPage) => Math.max(previousPage - 1, 1))}
+                      disabled={currentPage === 1}
+                      className="btn btn-secondary disabled:opacity-50"
+                    >
+                      Trước
+                    </button>
+                    <span className="text-sm text-gray-700">Trang {currentPage}/{totalPages}</span>
+                    <button
+                      onClick={() => setCurrentPage((previousPage) => Math.min(previousPage + 1, totalPages))}
+                      disabled={currentPage === totalPages}
+                      className="btn btn-secondary disabled:opacity-50"
+                    >
+                      Sau
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {!filteredMembers.length && (
                 <p className="p-6 text-gray-500">Không tìm thấy thành viên phù hợp với bộ lọc hiện tại.</p>
