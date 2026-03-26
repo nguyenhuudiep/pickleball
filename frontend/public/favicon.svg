@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Pickleball favicon">
+  <defs>
+    <radialGradient id="ball" cx="32" cy="20" r="34" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fef08a"/>
+      <stop offset="1" stop-color="#facc15"/>
+    </radialGradient>
+  </defs>
+  <circle cx="32" cy="32" r="30" fill="url(#ball)" stroke="#ca8a04" stroke-width="2"/>
+  <g fill="#0f172a">
+    <circle cx="22" cy="22" r="2.8"/>
+    <circle cx="32" cy="18" r="2.8"/>
+    <circle cx="42" cy="22" r="2.8"/>
+    <circle cx="18" cy="32" r="2.8"/>
+    <circle cx="46" cy="32" r="2.8"/>
+    <circle cx="22" cy="42" r="2.8"/>
+    <circle cx="32" cy="46" r="2.8"/>
+    <circle cx="42" cy="42" r="2.8"/>
+  </g>
+</svg>
