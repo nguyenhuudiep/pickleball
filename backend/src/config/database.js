@@ -98,6 +98,40 @@ const dropMongoIdColumnArtifacts = async () => {
   }
 };
 
+const ensureTournamentParticipantColumns = async () => {
+  await sequelize.query(`
+    IF COL_LENGTH('tournament_participants', 'partnerMemberId') IS NULL
+    BEGIN
+      ALTER TABLE [tournament_participants]
+      ADD [partnerMemberId] INT NULL;
+    END
+  `);
+
+  await sequelize.query(`
+    IF COL_LENGTH('tournament_participants', 'isDoublesParticipant') IS NULL
+    BEGIN
+      ALTER TABLE [tournament_participants]
+      ADD [isDoublesParticipant] BIT NOT NULL CONSTRAINT [DF_tournament_participants_isDoublesParticipant] DEFAULT 0;
+    END
+  `);
+
+  await sequelize.query(`
+    IF COL_LENGTH('tournament_participants', 'feePaid') IS NULL
+    BEGIN
+      ALTER TABLE [tournament_participants]
+      ADD [feePaid] BIT NOT NULL CONSTRAINT [DF_tournament_participants_feePaid] DEFAULT 0;
+    END
+  `);
+
+  await sequelize.query(`
+    IF COL_LENGTH('tournament_participants', 'feeAmount') IS NULL
+    BEGIN
+      ALTER TABLE [tournament_participants]
+      ADD [feeAmount] FLOAT NOT NULL CONSTRAINT [DF_tournament_participants_feeAmount] DEFAULT 0;
+    END
+  `);
+};
+
 const connectDB = async () => {
   try {
     await sequelize.authenticate();
@@ -107,6 +141,7 @@ const connectDB = async () => {
     await sequelize.sync(shouldAlter ? { alter: true } : {});
     await dropMongoIdColumnArtifacts();
     await normalizeDateTimeColumns();
+    await ensureTournamentParticipantColumns();
 
     const adminCount = await User.count({ where: { role: 'admin' } });
     if (adminCount === 0) {

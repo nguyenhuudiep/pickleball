@@ -120,8 +120,11 @@ export const dashboardAPI = {
 // Tournament services
 export const tournamentAPI = {
   getAll: () => API.get('/tournaments'),
+  getById: (id) => API.get(`/tournaments/${id}`),
   create: (data) => API.post('/tournaments', data),
   update: (id, data) => API.put(`/tournaments/${id}`, data),
+  updateParticipants: (id, participants) => API.put(`/tournaments/${id}/participants`, { participants }),
   delete: (id) => API.delete(`/tournaments/${id}`),
   getMemberHistory: (memberId) => API.get(`/tournaments/member/${memberId}`),
+  getPublicMemberHistory: (memberId) => API.get(`/tournaments/public/member/${memberId}`),
 };

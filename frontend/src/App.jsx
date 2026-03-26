@@ -11,6 +11,7 @@ import { FinancialPage } from './pages/FinancialPage';
 import { ReportsPage } from './pages/ReportsPage';
 import { UsersPage } from './pages/UsersPage';
 import { TournamentsPage } from './pages/TournamentsPage';
+import { TournamentParticipantsPage } from './pages/TournamentParticipantsPage';
 
 const ProtectedRoute = ({ children }) => {
   const { isAuthenticated, loading } = useAuth();
@@ -147,6 +148,16 @@ function App() {
               <ProtectedRoute>
                 <PermissionRoute permission="view_tournaments">
                   <TournamentsPage />
+                </PermissionRoute>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/tournaments/:id/participants"
+            element={
+              <ProtectedRoute>
+                <PermissionRoute permission="manage_tournaments">
+                  <TournamentParticipantsPage />
                 </PermissionRoute>
               </ProtectedRoute>
             }

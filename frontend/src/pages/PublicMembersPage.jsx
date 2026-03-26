@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Search } from 'lucide-react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
+import { Search, Trophy } from 'lucide-react';
 import { AppSelect } from '../components/AppSelect';
-import { memberAPI } from '../services/api';
+import { memberAPI, tournamentAPI } from '../services/api';
 
 const skillLevelOptions = Array.from({ length: 36 }, (_, index) => (1.5 + index * 0.1).toFixed(1));
 
@@ -51,6 +51,8 @@ export const PublicMembersPage = () => {
   const [skillFilter, setSkillFilter] = useState('all');
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [expandedHistoryMemberId, setExpandedHistoryMemberId] = useState(null);
+  const [historyByMember, setHistoryByMember] = useState({});
 
   useEffect(() => {
     const fetchPublicMembers = async () => {
@@ -91,6 +93,33 @@ export const PublicMembersPage = () => {
       setCurrentPage(totalPages);
     }
   }, [currentPage, totalPages]);
+
+  const handleToggleTournamentHistory = async (memberId) => {
+    if (expandedHistoryMemberId === memberId) {
+      setExpandedHistoryMemberId(null);
+      return;
+    }
+
+    setExpandedHistoryMemberId(memberId);
+
+    if (historyByMember[memberId]) {
+      return;
+    }
+
+    try {
+      const { data } = await tournamentAPI.getPublicMemberHistory(memberId);
+      setHistoryByMember((previousData) => ({
+        ...previousData,
+        [memberId]: data.tournaments || [],
+      }));
+    } catch (error) {
+      console.error('Error fetching public member tournament history:', error);
+      setHistoryByMember((previousData) => ({
+        ...previousData,
+        [memberId]: [],
+      }));
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-teal-50 to-cyan-100 p-4 md:p-8">
@@ -139,27 +168,65 @@ export const PublicMembersPage = () => {
                     <th className="text-left py-3 px-4">Điểm Trình</th>
                     <th className="text-left py-3 px-4">Loại Thành Viên</th>
                     <th className="text-left py-3 px-4">Trạng Thái</th>
+                    <th className="text-left py-3 px-4">Lịch Sử Giải</th>
                   </tr>
                 </thead>
                 <tbody>
                   {paginatedMembers.map((member) => (
-                    <tr key={member._id} className="border-b hover:bg-gray-50">
-                      <td className="py-3 px-4 font-medium text-gray-800">{member.name}</td>
-                      <td className="py-3 px-4">{genderLabel[member.gender] || 'Khác'}</td>
-                      <td className="py-3 px-4">{Number(member.skillLevel ?? 0).toFixed(1)}</td>
-                      <td className="py-3 px-4">
-                        <span className="px-3 py-1 bg-teal-100 text-teal-800 rounded-full text-sm">
-                          {membershipLabel[member.membershipType] || member.membershipType}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4">
-                        <span className={`px-3 py-1 rounded-full text-sm ${
-                          member.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-200 text-gray-700'
-                        }`}>
-                          {statusLabel[member.status] || member.status}
-                        </span>
-                      </td>
-                    </tr>
+                    <Fragment key={member._id}>
+                      <tr className="border-b hover:bg-gray-50">
+                        <td className="py-3 px-4 font-medium text-gray-800">{member.name}</td>
+                        <td className="py-3 px-4">{genderLabel[member.gender] || 'Khác'}</td>
+                        <td className="py-3 px-4">{Number(member.skillLevel ?? 0).toFixed(1)}</td>
+                        <td className="py-3 px-4">
+                          <span className="px-3 py-1 bg-teal-100 text-teal-800 rounded-full text-sm">
+                            {membershipLabel[member.membershipType] || member.membershipType}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4">
+                          <span className={`px-3 py-1 rounded-full text-sm ${
+                            member.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-200 text-gray-700'
+                          }`}>
+                            {statusLabel[member.status] || member.status}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4">
+                          <button
+                            onClick={() => handleToggleTournamentHistory(member._id)}
+                            className="text-amber-600 hover:text-amber-800"
+                            title="Lịch sử giải đấu"
+                          >
+                            <Trophy size={18} />
+                          </button>
+                        </td>
+                      </tr>
+
+                      {expandedHistoryMemberId === member._id && (
+                        <tr className="bg-gray-50 border-b">
+                          <td colSpan={6} className="py-3 px-4">
+                            <p className="font-medium text-gray-700 mb-2">Lịch sử thi đấu giải</p>
+                            {historyByMember[member._id]?.length ? (
+                              <ul className="space-y-1 text-sm text-gray-700">
+                                {historyByMember[member._id].map((tournament) => {
+                                  const participant = tournament.participants?.find(
+                                    (item) => (item.memberId?._id || item.memberId) === member._id
+                                  );
+                                  return (
+                                    <li key={tournament._id}>
+                                      {new Date(tournament.date).toLocaleDateString('vi-VN')} - {tournament.name}
+                                      {participant?.rank ? ` (Hạng ${participant.rank})` : ''}
+                                      {participant?.result ? ` - ${participant.result}` : ''}
+                                    </li>
+                                  );
+                                })}
+                              </ul>
+                            ) : (
+                              <p className="text-sm text-gray-500">Chưa có lịch sử thi đấu giải.</p>
+                            )}
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
                   ))}
                 </tbody>
               </table>

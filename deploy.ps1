@@ -2,8 +2,11 @@ param(
   [string]$Branch = "main",
   [string]$ApiUrl = "http://103.35.65.57:5000/api",
   [string]$FrontendPublishPath = "",
+  [string]$FrontendBaseUrl = "",
+  [string[]]$FrontendSmokePaths = @("/", "/login", "/members-public"),
   [switch]$SkipGitPull,
   [switch]$SkipNpmInstall,
+  [switch]$SkipFrontendSmoke,
   [string]$BackendRestartCommand = "",
   [ValidateSet("pm2", "detached", "manual")]
   [string]$BackendMode = "pm2",
@@ -52,6 +55,80 @@ function Install-NodeDeps {
   else {
     npm install
     Assert-LastExitCode -Context "npm install"
+  }
+}
+
+function Get-NormalizedFullPath {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$Path
+  )
+
+  return [System.IO.Path]::GetFullPath($Path).TrimEnd('\\').ToLowerInvariant()
+}
+
+function Stop-FrontendLockingProcesses {
+  $ports = @(3000, 5173)
+
+  foreach ($port in $ports) {
+    try {
+      $listeners = Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue
+      foreach ($listener in $listeners) {
+        Stop-Process -Id $listener.OwningProcess -Force -ErrorAction SilentlyContinue
+      }
+    }
+    catch {
+      Write-Host "Could not stop listeners on port $port." -ForegroundColor Yellow
+    }
+  }
+
+  try {
+    $frontendPathHint = (Join-Path $PSScriptRoot "frontend").ToLowerInvariant()
+    $nodeProcesses = Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" -ErrorAction SilentlyContinue
+    foreach ($proc in $nodeProcesses) {
+      $cmd = ($proc.CommandLine | Out-String).ToLowerInvariant()
+      if ($cmd -like "*$frontendPathHint*") {
+        Stop-Process -Id $proc.ProcessId -Force -ErrorAction SilentlyContinue
+      }
+    }
+  }
+  catch {
+    Write-Host "Could not inspect node process command lines for frontend locks." -ForegroundColor Yellow
+  }
+}
+
+function Invoke-FrontendBuild {
+  if ($ApiUrl -match "localhost|127\.0\.0\.1") {
+    throw "ApiUrl must not use localhost/127.0.0.1 for server deployment. Use the server IP or domain."
+  }
+
+  $attempt = 1
+  $maxAttempts = 2
+
+  while ($attempt -le $maxAttempts) {
+    try {
+      Push-Location "frontend"
+      Set-Content -Path ".env.production" -Value "VITE_API_URL=$ApiUrl" -Encoding ascii
+      Install-NodeDeps
+      npm run build
+      Assert-LastExitCode -Context "npm run build"
+      return
+    }
+    catch {
+      if ($attempt -ge $maxAttempts) {
+        throw
+      }
+
+      Write-Host "Frontend build failed on attempt $attempt. Trying to release file locks and retry..." -ForegroundColor Yellow
+      Stop-FrontendLockingProcesses
+      Start-Sleep -Seconds 2
+      $attempt++
+    }
+    finally {
+      if ((Get-Location).Path -ne $PSScriptRoot) {
+        Pop-Location
+      }
+    }
   }
 }
 
@@ -175,6 +252,20 @@ function Publish-FrontendBuild {
     throw "Frontend build output not found at $sourceDist"
   }
 
+  $normalizedRoot = Get-NormalizedFullPath -Path $PSScriptRoot
+  $normalizedFrontend = Get-NormalizedFullPath -Path (Join-Path $PSScriptRoot "frontend")
+  $normalizedBackend = Get-NormalizedFullPath -Path (Join-Path $PSScriptRoot "backend")
+  $normalizedDist = Get-NormalizedFullPath -Path $sourceDist
+  $normalizedTarget = Get-NormalizedFullPath -Path $TargetPath
+
+  if ($normalizedTarget -eq $normalizedRoot -or $normalizedTarget -eq $normalizedFrontend -or $normalizedTarget -eq $normalizedBackend -or $normalizedTarget -eq $normalizedDist) {
+    throw "FrontendPublishPath is unsafe. Choose a dedicated static folder (example: D:\\...\\frontend-public)."
+  }
+
+  if ($normalizedTarget.StartsWith($normalizedFrontend + "\\")) {
+    throw "FrontendPublishPath must not be inside the frontend source directory."
+  }
+
   if (-not (Test-Path $TargetPath)) {
     New-Item -ItemType Directory -Path $TargetPath -Force | Out-Null
   }
@@ -189,6 +280,25 @@ function Publish-FrontendBuild {
   }
 
   Write-Host "Frontend build published to: $TargetPath" -ForegroundColor Green
+}
+
+function Invoke-FrontendSmokeChecks {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$BaseUrl,
+    [Parameter(Mandatory = $true)]
+    [string[]]$Paths
+  )
+
+  foreach ($path in $Paths) {
+    $normalizedPath = if ($path.StartsWith('/')) { $path } else { '/' + $path }
+    $url = $BaseUrl.TrimEnd('/') + $normalizedPath
+    $response = Invoke-WebRequest -UseBasicParsing -Uri $url -TimeoutSec 20
+    if ($response.StatusCode -lt 200 -or $response.StatusCode -ge 400) {
+      throw "Frontend smoke check failed: $url returned status $($response.StatusCode)"
+    }
+    Write-Host "Frontend smoke check passed: $($response.StatusCode) $url" -ForegroundColor Green
+  }
 }
 
 Push-Location $PSScriptRoot
@@ -219,16 +329,7 @@ try {
   }
 
   Invoke-Step -Message "Build frontend with production API URL" -Action {
-    if ($ApiUrl -match "localhost|127\.0\.0\.1") {
-      throw "ApiUrl must not use localhost/127.0.0.1 for server deployment. Use the server IP or domain."
-    }
-
-    Push-Location "frontend"
-    Set-Content -Path ".env.production" -Value "VITE_API_URL=$ApiUrl" -Encoding ascii
-    Install-NodeDeps
-    npm run build
-    Assert-LastExitCode -Context "npm run build"
-    Pop-Location
+    Invoke-FrontendBuild
   }
 
   if ($FrontendPublishPath.Trim()) {
@@ -278,6 +379,15 @@ try {
       Write-Host "Health check failed: $healthUrl" -ForegroundColor Yellow
       Write-Host $_.Exception.Message -ForegroundColor Yellow
     }
+  }
+
+  if (-not $SkipFrontendSmoke -and $FrontendBaseUrl.Trim()) {
+    Invoke-Step -Message "Verify frontend routes" -Action {
+      Invoke-FrontendSmokeChecks -BaseUrl $FrontendBaseUrl -Paths $FrontendSmokePaths
+    }
+  }
+  elseif (-not $SkipFrontendSmoke) {
+    Write-Host "Frontend smoke checks skipped because FrontendBaseUrl is not set." -ForegroundColor Yellow
   }
 
   Write-Host "Deploy completed." -ForegroundColor Green
