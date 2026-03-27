@@ -687,6 +687,7 @@ export const TournamentParticipantsPage = () => {
               <table className="w-full">
                 <thead>
                   <tr className="border-b">
+                    <th className="text-left py-3 px-4">STT</th>
                     <th className="text-left py-3 px-4">Khoản Mục</th>
                     <th className="text-left py-3 px-4">Loại</th>
                     <th className="text-right py-3 px-4">Số Tiền</th>
@@ -695,13 +696,15 @@ export const TournamentParticipantsPage = () => {
                 </thead>
                 <tbody>
                   <tr className="border-b bg-green-50">
+                    <td className="py-3 px-4 font-medium">1</td>
                     <td className="py-3 px-4 font-medium">Lệ phí VĐV đã thu</td>
                     <td className="py-3 px-4"><span className="px-2 py-1 rounded bg-green-100 text-green-700 text-xs">Thu</span></td>
                     <td className="py-3 px-4 text-right font-semibold text-green-700">{formatCurrencyVND(totalCollectedAmount)}</td>
                     <td className="py-3 px-4" />
                   </tr>
-                  {financeItems.map((item) => (
+                  {financeItems.map((item, index) => (
                     <tr key={item.id} className="border-b">
+                      <td className="py-3 px-4 font-medium">{index + 2}</td>
                       <td className="py-3 px-4">
                         <input
                           type="text"

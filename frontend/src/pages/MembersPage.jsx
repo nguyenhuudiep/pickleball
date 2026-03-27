@@ -1,8 +1,8 @@
-import { Fragment, useState, useEffect } from 'react';
+import { Fragment, useState, useEffect, useRef } from 'react';
 import { Layout } from '../components/Layout';
 import { AppSelect } from '../components/AppSelect';
 import { memberAPI, tournamentAPI } from '../services/api';
-import { Plus, Edit2, Trash2, Search, Trophy } from 'lucide-react';
+import { Plus, Edit2, Trash2, Search, History } from 'lucide-react';
 
 const skillLevelOptions = Array.from({ length: 36 }, (_, index) => (1.5 + index * 0.1).toFixed(1));
 const membershipTypeOptions = [
@@ -26,6 +26,21 @@ const itemsPerPageOptions = [
   { value: 50, label: '50' },
 ];
 const getSelectedOption = (options, value) => options.find((option) => option.value === value) || null;
+const AUTO_REFRESH_INTERVAL_MS = 15000;
+
+const buildMembersVersion = (members = []) => {
+  const list = Array.isArray(members) ? members : [];
+  let latest = 0;
+
+  for (const member of list) {
+    const stamp = new Date(member?.updatedAt || member?.createdAt || 0).getTime();
+    if (Number.isFinite(stamp) && stamp > latest) {
+      latest = stamp;
+    }
+  }
+
+  return `${list.length}:${latest || 0}`;
+};
 
 export const MembersPage = () => {
   const [members, setMembers] = useState([]);
@@ -37,7 +52,8 @@ export const MembersPage = () => {
   const [itemsPerPage, setItemsPerPage] = useState(10);
   const [editingId, setEditingId] = useState(null);
   const [expandedHistoryMemberId, setExpandedHistoryMemberId] = useState(null);
-  const [historyByMember, setHistoryByMember] = useState({});
+  const [skillHistoryByMember, setSkillHistoryByMember] = useState({});
+  const [tournamentHistoryByMember, setTournamentHistoryByMember] = useState({});
   const [formData, setFormData] = useState({
     name: '',
     username: '',
@@ -48,19 +64,109 @@ export const MembersPage = () => {
     skillLevel: 2.5,
     gender: 'male',
   });
+  const isFetchingRef = useRef(false);
+  const isCheckingVersionRef = useRef(false);
+  const lastVersionRef = useRef('');
+  const versionPollCountRef = useRef(0);
 
   useEffect(() => {
     fetchMembers();
   }, []);
 
-  const fetchMembers = async () => {
+  useEffect(() => {
+    const refreshMembers = () => {
+      checkMembersVersionAndRefresh();
+    };
+    const handleFocus = () => {
+      checkMembersVersionAndRefresh({ forceFullFetch: true });
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        checkMembersVersionAndRefresh({ forceFullFetch: true });
+      }
+    };
+
+    const intervalId = window.setInterval(refreshMembers, AUTO_REFRESH_INTERVAL_MS);
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, []);
+
+  const fetchMembers = async ({ silent = false } = {}) => {
+    if (isFetchingRef.current) {
+      return;
+    }
+
+    isFetchingRef.current = true;
+
+    if (!silent) {
+      setLoading(true);
+    }
+
     try {
       const { data } = await memberAPI.getAll();
-      setMembers(data.members);
+      const nextMembers = Array.isArray(data.members) ? data.members : [];
+      setMembers(nextMembers);
+      lastVersionRef.current = data.version || buildMembersVersion(nextMembers);
     } catch (error) {
       console.error('Error fetching members:', error);
+    } finally {
+      if (!silent) {
+        setLoading(false);
+      }
+      isFetchingRef.current = false;
     }
-    setLoading(false);
+  };
+
+  const checkMembersVersionAndRefresh = async ({ forceFullFetch = false } = {}) => {
+    if (isFetchingRef.current || isCheckingVersionRef.current) {
+      return;
+    }
+
+    if (forceFullFetch) {
+      await fetchMembers({ silent: true });
+      return;
+    }
+
+    isCheckingVersionRef.current = true;
+
+    try {
+      versionPollCountRef.current += 1;
+
+      // Safety net: every 4 polls force a full refresh in case version data is stale upstream.
+      if (versionPollCountRef.current % 4 === 0) {
+        await fetchMembers({ silent: true });
+        return;
+      }
+
+      const { data } = await memberAPI.getVersion();
+      const nextVersion = data?.version;
+
+      if (!nextVersion) {
+        await fetchMembers({ silent: true });
+        return;
+      }
+
+      if (!lastVersionRef.current) {
+        lastVersionRef.current = nextVersion;
+        await fetchMembers({ silent: true });
+        return;
+      }
+
+      if (nextVersion !== lastVersionRef.current) {
+        await fetchMembers({ silent: true });
+      }
+    } catch (error) {
+      console.error('Error checking members version:', error);
+    } finally {
+      isCheckingVersionRef.current = false;
+    }
   };
 
   const handleSubmit = async (e) => {
@@ -116,7 +222,7 @@ export const MembersPage = () => {
     });
   };
 
-  const handleToggleTournamentHistory = async (memberId) => {
+  const handleToggleSkillHistory = async (memberId) => {
     if (expandedHistoryMemberId === memberId) {
       setExpandedHistoryMemberId(null);
       return;
@@ -124,22 +230,50 @@ export const MembersPage = () => {
 
     setExpandedHistoryMemberId(memberId);
 
-    if (historyByMember[memberId]) {
-      return;
+    const requests = [];
+
+    if (!skillHistoryByMember[memberId]) {
+      requests.push(
+        memberAPI
+          .getSkillHistory(memberId)
+          .then(({ data }) => {
+            setSkillHistoryByMember((prev) => ({
+              ...prev,
+              [memberId]: data.histories || [],
+            }));
+          })
+          .catch((error) => {
+            console.error('Error fetching member skill history:', error);
+            setSkillHistoryByMember((prev) => ({
+              ...prev,
+              [memberId]: [],
+            }));
+          })
+      );
     }
 
-    try {
-      const { data } = await tournamentAPI.getMemberHistory(memberId);
-      setHistoryByMember((prev) => ({
-        ...prev,
-        [memberId]: data.tournaments || [],
-      }));
-    } catch (error) {
-      console.error('Error fetching member tournament history:', error);
-      setHistoryByMember((prev) => ({
-        ...prev,
-        [memberId]: [],
-      }));
+    if (!tournamentHistoryByMember[memberId]) {
+      requests.push(
+        tournamentAPI
+          .getMemberHistory(memberId)
+          .then(({ data }) => {
+            setTournamentHistoryByMember((prev) => ({
+              ...prev,
+              [memberId]: data.tournaments || [],
+            }));
+          })
+          .catch((error) => {
+            console.error('Error fetching member tournament history:', error);
+            setTournamentHistoryByMember((prev) => ({
+              ...prev,
+              [memberId]: [],
+            }));
+          })
+      );
+    }
+
+    if (requests.length > 0) {
+      await Promise.all(requests);
     }
   };
 
@@ -312,6 +446,7 @@ export const MembersPage = () => {
             <table className="w-full">
               <thead>
                 <tr className="border-b">
+                  <th className="text-left py-3 px-4">STT</th>
                   <th className="text-left py-3 px-4">Tên</th>
                   <th className="text-left py-3 px-4">Giới Tính</th>
                   <th className="text-left py-3 px-4">Điểm Trình</th>
@@ -321,9 +456,10 @@ export const MembersPage = () => {
                 </tr>
               </thead>
               <tbody>
-                {paginatedMembers.map((member) => (
+                {paginatedMembers.map((member, index) => (
                   <Fragment key={member._id}>
                     <tr className="border-b hover:bg-gray-50">
+                      <td className="py-3 px-4 font-medium">{startIndex + index + 1}</td>
                       <td className="py-3 px-4">{member.name}</td>
                       <td className="py-3 px-4">
                         {member.gender === 'male' ? 'Nam' : member.gender === 'female' ? 'Nữ' : 'Khác'}
@@ -343,11 +479,11 @@ export const MembersPage = () => {
                       </td>
                       <td className="py-3 px-4 whitespace-nowrap">
                         <button
-                          onClick={() => handleToggleTournamentHistory(member._id)}
+                          onClick={() => handleToggleSkillHistory(member._id)}
                           className="text-amber-600 hover:text-amber-800 mr-2"
-                          title="Lịch sử giải đấu"
+                          title="Lịch sử tăng/giảm điểm"
                         >
-                          <Trophy size={18} />
+                          <History size={18} />
                         </button>
                         <button
                           onClick={() => handleEdit(member)}
@@ -370,26 +506,60 @@ export const MembersPage = () => {
 
                     {expandedHistoryMemberId === member._id && (
                       <tr className="bg-gray-50 border-b">
-                        <td colSpan={6} className="py-3 px-4">
-                          <p className="font-medium text-gray-700 mb-2">Lịch sử thi đấu giải</p>
-                          {historyByMember[member._id]?.length ? (
-                            <ul className="space-y-1 text-sm text-gray-700">
-                              {historyByMember[member._id].map((tournament) => {
-                                const participant = tournament.participants?.find(
-                                  (item) => (item.memberId?._id || item.memberId) === member._id
-                                );
+                        <td colSpan={7} className="py-3 px-4">
+                          <div className="space-y-4">
+                            <div>
+                              <p className="font-medium text-gray-700 mb-2">Lịch sử tham dự giải</p>
+                              {tournamentHistoryByMember[member._id]?.length ? (
+                                <ul className="space-y-1 text-sm text-gray-700">
+                                  {tournamentHistoryByMember[member._id].map((tournament) => {
+                                    const participant = tournament.participants?.find(
+                                      (item) => (item.memberId?._id || item.memberId) === member._id
+                                    );
+
+                                    return (
+                                      <li key={tournament._id}>
+                                        {new Date(tournament.date).toLocaleDateString('vi-VN')} - {tournament.name}
+                                        {participant?.rank ? ` (Hạng ${participant.rank})` : ''}
+                                        {participant?.result ? ` - ${participant.result}` : ''}
+                                      </li>
+                                    );
+                                  })}
+                                </ul>
+                              ) : (
+                                <p className="text-sm text-gray-500">Chưa có lịch sử tham dự giải.</p>
+                              )}
+                            </div>
+
+                            <div>
+                              <p className="font-medium text-gray-700 mb-2">Lịch sử tăng/giảm điểm</p>
+                              {skillHistoryByMember[member._id]?.length ? (
+                                <ul className="space-y-1 text-sm text-gray-700">
+                                  {skillHistoryByMember[member._id].map((historyItem) => {
+                                const delta = Number(historyItem.delta || 0);
+                                const sign = delta > 0 ? '+' : '';
+                                const deltaColor = delta >= 0 ? 'text-green-700' : 'text-red-700';
+
                                 return (
-                                  <li key={tournament._id}>
-                                    {new Date(tournament.date).toLocaleDateString('vi-VN')} - {tournament.name}
-                                    {participant?.rank ? ` (Hạng ${participant.rank})` : ''}
-                                    {participant?.result ? ` - ${participant.result}` : ''}
+                                  <li key={historyItem._id} className="flex flex-wrap items-center gap-2">
+                                    <span className="text-gray-500">
+                                      {new Date(historyItem.createdAt).toLocaleString('vi-VN')}
+                                    </span>
+                                    <span className={`font-semibold ${deltaColor}`}>
+                                      {sign}{delta.toFixed(1)}
+                                    </span>
+                                    <span>
+                                      {historyItem.reason || 'Điều chỉnh điểm'}
+                                    </span>
                                   </li>
                                 );
-                              })}
-                            </ul>
-                          ) : (
-                            <p className="text-sm text-gray-500">Chưa có lịch sử thi đấu giải.</p>
-                          )}
+                                  })}
+                                </ul>
+                              ) : (
+                                <p className="text-sm text-gray-500">Chưa có lịch sử tăng/giảm điểm.</p>
+                              )}
+                            </div>
+                          </div>
                         </td>
                       </tr>
                     )}

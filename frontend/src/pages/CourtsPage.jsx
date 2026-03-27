@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Layout } from '../components/Layout';
 import { AppSelect } from '../components/AppSelect';
 import { courtAPI } from '../services/api';
@@ -11,6 +11,19 @@ const surfaceOptions = [
 ];
 
 const getSelectedOption = (options, value) => options.find((option) => option.value === value) || null;
+const AUTO_REFRESH_INTERVAL_MS = 15000;
+
+const buildCourtsSignature = (courts = []) => JSON.stringify(
+  (Array.isArray(courts) ? courts : []).map((court) => [
+    court._id,
+    court.name,
+    court.courtNumber,
+    court.surface,
+    court.hourlyRate,
+    court.status,
+    court.updatedAt,
+  ])
+);
 
 export const CourtsPage = () => {
   const [courts, setCourts] = useState([]);
@@ -23,19 +36,60 @@ export const CourtsPage = () => {
     lights: false,
     hourlyRate: '',
   });
+  const isFetchingRef = useRef(false);
+  const lastSignatureRef = useRef('');
 
   useEffect(() => {
     fetchCourts();
   }, []);
 
-  const fetchCourts = async () => {
+  useEffect(() => {
+    const refreshCourts = () => fetchCourts({ silent: true });
+    const handleFocus = () => fetchCourts({ silent: true });
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        fetchCourts({ silent: true });
+      }
+    };
+
+    const intervalId = window.setInterval(refreshCourts, AUTO_REFRESH_INTERVAL_MS);
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, []);
+
+  const fetchCourts = async ({ silent = false } = {}) => {
+    if (isFetchingRef.current) {
+      return;
+    }
+
+    isFetchingRef.current = true;
+
+    if (!silent) {
+      setLoading(true);
+    }
+
     try {
       const { data } = await courtAPI.getAll();
-      setCourts(data.courts);
+      const nextCourts = data.courts || [];
+      const nextSignature = buildCourtsSignature(nextCourts);
+      if (nextSignature !== lastSignatureRef.current) {
+        lastSignatureRef.current = nextSignature;
+        setCourts(nextCourts);
+      }
     } catch (error) {
       console.error('Error fetching courts:', error);
+    } finally {
+      if (!silent) {
+        setLoading(false);
+      }
+      isFetchingRef.current = false;
     }
-    setLoading(false);
   };
 
   const handleSubmit = async (e) => {

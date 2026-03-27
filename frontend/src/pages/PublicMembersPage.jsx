@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { Search, Trophy } from 'lucide-react';
 import { AppSelect } from '../components/AppSelect';
 import { memberAPI, tournamentAPI } from '../services/api';
@@ -42,6 +42,21 @@ const membershipLabel = {
 };
 
 const getSelectedOption = (options, value) => options.find((option) => option.value === value) || null;
+const AUTO_REFRESH_INTERVAL_MS = 15000;
+
+const buildMembersSignature = (members = []) => {
+  const list = Array.isArray(members) ? members : [];
+  return JSON.stringify(
+    list.map((member) => [
+      member._id,
+      member.name,
+      member.skillLevel,
+      member.membershipType,
+      member.status,
+      member.updatedAt,
+    ])
+  );
+};
 
 export const PublicMembersPage = () => {
   const [members, setMembers] = useState([]);
@@ -53,19 +68,67 @@ export const PublicMembersPage = () => {
   const [itemsPerPage, setItemsPerPage] = useState(10);
   const [expandedHistoryMemberId, setExpandedHistoryMemberId] = useState(null);
   const [historyByMember, setHistoryByMember] = useState({});
+  const isFetchingRef = useRef(false);
+  const lastSignatureRef = useRef('');
+
+  const fetchPublicMembers = async ({ silent = false } = {}) => {
+    if (isFetchingRef.current) {
+      return;
+    }
+
+    isFetchingRef.current = true;
+
+    if (!silent) {
+      setLoading(true);
+    }
+
+    try {
+      const { data } = await memberAPI.getPublic();
+      const nextMembers = data.members || [];
+      const nextSignature = buildMembersSignature(nextMembers);
+
+      if (nextSignature !== lastSignatureRef.current) {
+        lastSignatureRef.current = nextSignature;
+        setMembers(nextMembers);
+      }
+    } catch (error) {
+      console.error('Error fetching public members:', error);
+    } finally {
+      if (!silent) {
+        setLoading(false);
+      }
+      isFetchingRef.current = false;
+    }
+  };
 
   useEffect(() => {
-    const fetchPublicMembers = async () => {
-      try {
-        const { data } = await memberAPI.getPublic();
-        setMembers(data.members || []);
-      } catch (error) {
-        console.error('Error fetching public members:', error);
-      }
-      setLoading(false);
+    fetchPublicMembers();
+  }, []);
+
+  useEffect(() => {
+    const refreshMembers = () => {
+      fetchPublicMembers({ silent: true });
     };
 
-    fetchPublicMembers();
+    const handleFocus = () => {
+      fetchPublicMembers({ silent: true });
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        fetchPublicMembers({ silent: true });
+      }
+    };
+
+    const intervalId = window.setInterval(refreshMembers, AUTO_REFRESH_INTERVAL_MS);
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, []);
 
   const filteredMembers = useMemo(() => {
@@ -163,6 +226,7 @@ export const PublicMembersPage = () => {
               <table className="w-full min-w-[720px]">
                 <thead>
                   <tr className="border-b bg-gray-50">
+                    <th className="text-left py-3 px-4">STT</th>
                     <th className="text-left py-3 px-4">Tên</th>
                     <th className="text-left py-3 px-4">Giới Tính</th>
                     <th className="text-left py-3 px-4">Điểm Trình</th>
@@ -172,9 +236,10 @@ export const PublicMembersPage = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {paginatedMembers.map((member) => (
+                  {paginatedMembers.map((member, index) => (
                     <Fragment key={member._id}>
                       <tr className="border-b hover:bg-gray-50">
+                        <td className="py-3 px-4 font-medium">{startIndex + index + 1}</td>
                         <td className="py-3 px-4 font-medium text-gray-800">{member.name}</td>
                         <td className="py-3 px-4">{genderLabel[member.gender] || 'Khác'}</td>
                         <td className="py-3 px-4">{Number(member.skillLevel ?? 0).toFixed(1)}</td>
@@ -203,7 +268,7 @@ export const PublicMembersPage = () => {
 
                       {expandedHistoryMemberId === member._id && (
                         <tr className="bg-gray-50 border-b">
-                          <td colSpan={6} className="py-3 px-4">
+                          <td colSpan={7} className="py-3 px-4">
                             <p className="font-medium text-gray-700 mb-2">Lịch sử thi đấu giải</p>
                             {historyByMember[member._id]?.length ? (
                               <ul className="space-y-1 text-sm text-gray-700">

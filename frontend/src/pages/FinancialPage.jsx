@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Layout } from '../components/Layout';
 import { AppSelect } from '../components/AppSelect';
 import { financialAPI } from '../services/api';
@@ -62,6 +62,18 @@ const itemsPerPageOptions = [
 ];
 
 const getSelectedOption = (options, value) => options.find((option) => option.value === value) || null;
+const AUTO_REFRESH_INTERVAL_MS = 15000;
+
+const buildFinancialSignature = (transactions = []) => JSON.stringify(
+  (Array.isArray(transactions) ? transactions : []).map((item) => [
+    item._id,
+    item.type,
+    item.amount,
+    item.category,
+    item.date,
+    item.updatedAt,
+  ])
+);
 
 export const FinancialPage = () => {
   const [transactions, setTransactions] = useState([]);
@@ -73,24 +85,68 @@ export const FinancialPage = () => {
   const [stats, setStats] = useState({ income: 0, expenses: 0, profit: 0 });
   const [dateFilter, setDateFilter] = useState(getDefaultDateFilter());
   const [formData, setFormData] = useState(getDefaultFormData());
+  const isFetchingRef = useRef(false);
+  const lastSignatureRef = useRef('');
 
   useEffect(() => {
     fetchData();
   }, []);
 
+  useEffect(() => {
+    const refreshData = () => fetchData(undefined, undefined, undefined, { silent: true, keepPage: true, keepLoading: true });
+    const handleFocus = () => fetchData(undefined, undefined, undefined, { silent: true, keepPage: true, keepLoading: true });
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        fetchData(undefined, undefined, undefined, { silent: true, keepPage: true, keepLoading: true });
+      }
+    };
+
+    const intervalId = window.setInterval(refreshData, AUTO_REFRESH_INTERVAL_MS);
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [dateFilter.startDate, dateFilter.endDate, dateFilter.type]);
+
   const fetchData = async (
     startDate = dateFilter.startDate,
     endDate = dateFilter.endDate,
-    type = dateFilter.type
+    type = dateFilter.type,
+    options = {}
   ) => {
+    const { silent = false, keepPage = false, keepLoading = false } = options;
+
+    if (isFetchingRef.current) {
+      return;
+    }
+
+    isFetchingRef.current = true;
+
+    if (!silent && !keepLoading) {
+      setLoading(true);
+    }
+
     try {
       const apiType = type === 'all' ? undefined : type;
       const [transRes, statsRes] = await Promise.all([
         financialAPI.getAll(startDate, endDate, apiType),
         financialAPI.getStats(startDate, endDate, apiType),
       ]);
-      setTransactions(transRes.data.financials);
-      setCurrentPage(1);
+      const nextTransactions = transRes.data.financials || [];
+      const nextSignature = buildFinancialSignature(nextTransactions);
+      if (nextSignature !== lastSignatureRef.current) {
+        lastSignatureRef.current = nextSignature;
+        setTransactions(nextTransactions);
+      }
+
+      if (!keepPage) {
+        setCurrentPage(1);
+      }
+
       setStats({
         income: statsRes.data.income,
         expenses: statsRes.data.expenses,
@@ -98,8 +154,12 @@ export const FinancialPage = () => {
       });
     } catch (error) {
       console.error('Error fetching financial data:', error);
+    } finally {
+      if (!silent && !keepLoading) {
+        setLoading(false);
+      }
+      isFetchingRef.current = false;
     }
-    setLoading(false);
   };
 
   const handleSubmit = async (e) => {

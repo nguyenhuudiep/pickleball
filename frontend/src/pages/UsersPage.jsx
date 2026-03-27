@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Layout } from '../components/Layout';
 import { AppSelect } from '../components/AppSelect';
 import { Edit2, Trash2, Save, X, Plus, Search } from 'lucide-react';
@@ -80,6 +80,19 @@ const permissionPresets = [
 ];
 
 const getSelectedOption = (options, value) => options.find((option) => option.value === value) || null;
+const AUTO_REFRESH_INTERVAL_MS = 15000;
+
+const buildUsersSignature = (users = []) => JSON.stringify(
+  (Array.isArray(users) ? users : []).map((user) => [
+    user._id,
+    user.name,
+    user.username,
+    user.role,
+    user.active,
+    (user.permissions || []).join(','),
+    user.updatedAt,
+  ])
+);
 
 export const UsersPage = () => {
   const [users, setUsers] = useState([]);
@@ -103,21 +116,62 @@ export const UsersPage = () => {
   });
   const [selectedCreatePreset, setSelectedCreatePreset] = useState('member-basic');
   const [selectedEditPreset, setSelectedEditPreset] = useState('');
+  const isFetchingRef = useRef(false);
+  const lastSignatureRef = useRef('');
 
   useEffect(() => {
     fetchUsers();
   }, []);
 
-  const fetchUsers = async () => {
+  useEffect(() => {
+    const refreshUsers = () => fetchUsers({ silent: true });
+    const handleFocus = () => fetchUsers({ silent: true });
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        fetchUsers({ silent: true });
+      }
+    };
+
+    const intervalId = window.setInterval(refreshUsers, AUTO_REFRESH_INTERVAL_MS);
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, []);
+
+  const fetchUsers = async ({ silent = false } = {}) => {
+    if (isFetchingRef.current) {
+      return;
+    }
+
+    isFetchingRef.current = true;
+
+    if (!silent) {
+      setLoading(true);
+    }
+
     try {
       const { data } = await userAPI.getAll();
       if (data.success) {
-        setUsers(data.users);
+        const nextUsers = data.users || [];
+        const nextSignature = buildUsersSignature(nextUsers);
+        if (nextSignature !== lastSignatureRef.current) {
+          lastSignatureRef.current = nextSignature;
+          setUsers(nextUsers);
+        }
       }
     } catch (error) {
       console.error('Error fetching users:', error);
+    } finally {
+      if (!silent) {
+        setLoading(false);
+      }
+      isFetchingRef.current = false;
     }
-    setLoading(false);
   };
 
   const handleAddUser = async (e) => {
@@ -339,6 +393,7 @@ export const UsersPage = () => {
             <table className="w-full">
               <thead>
                 <tr className="border-b bg-gray-50">
+                  <th className="text-left py-3 px-4">STT</th>
                   <th className="text-left py-3 px-4">Tên</th>
                   <th className="text-left py-3 px-4">Tên Đăng Nhập</th>
                   <th className="text-left py-3 px-4">Loại Tài Khoản</th>
@@ -354,8 +409,9 @@ export const UsersPage = () => {
                     u.username?.toLowerCase().includes(searchTerm.toLowerCase()) ||
                     u.name?.toLowerCase().includes(searchTerm.toLowerCase())
                   )
-                  .map((user) => (
+                  .map((user, index) => (
                   <tr key={user._id} className="border-b hover:bg-gray-50">
+                    <td className="py-3 px-4 font-medium">{index + 1}</td>
                     <td className="py-3 px-4 font-medium">
                       {editingId === user._id ? (
                         <input

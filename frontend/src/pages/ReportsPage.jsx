@@ -202,6 +202,7 @@ export const ReportsPage = () => {
               <table className="w-full">
                 <thead>
                   <tr className="border-b">
+                    <th className="text-left py-3 px-4">STT</th>
                     <th className="text-left py-3 px-4">Tháng</th>
                     <th className="text-left py-3 px-4">Doanh Thu</th>
                     <th className="text-left py-3 px-4">Chi Phí</th>
@@ -211,13 +212,14 @@ export const ReportsPage = () => {
                 <tbody>
                   {monthlyData.length === 0 ? (
                     <tr>
-                      <td colSpan={4} className="py-6 px-4 text-center text-gray-500">
+                      <td colSpan={5} className="py-6 px-4 text-center text-gray-500">
                         Không có dữ liệu trong khoảng thời gian đã chọn.
                       </td>
                     </tr>
                   ) : (
-                    monthlyData.map((item) => (
+                    monthlyData.map((item, index) => (
                       <tr key={item._id} className="border-b hover:bg-gray-50">
+                        <td className="py-3 px-4 font-medium">{index + 1}</td>
                         <td className="py-3 px-4">{item._id}</td>
                         <td className="py-3 px-4 text-green-700">{formatCurrency(item.income)}</td>
                         <td className="py-3 px-4 text-red-700">{formatCurrency(item.expense)}</td>
@@ -254,6 +256,7 @@ export const ReportsPage = () => {
               <table className="w-full">
                 <thead>
                   <tr className="border-b">
+                    <th className="text-left py-3 px-4">STT</th>
                     <th className="text-left py-3 px-4">Ngày</th>
                     <th className="text-left py-3 px-4">Loại</th>
                     <th className="text-left py-3 px-4">Danh Mục</th>
@@ -264,13 +267,14 @@ export const ReportsPage = () => {
                 <tbody>
                   {transactions.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="py-6 px-4 text-center text-gray-500">
+                      <td colSpan={6} className="py-6 px-4 text-center text-gray-500">
                         Không có giao dịch trong khoảng thời gian đã chọn.
                       </td>
                     </tr>
                   ) : (
-                    transactions.map((transaction) => (
+                    transactions.map((transaction, index) => (
                       <tr key={transaction._id} className="border-b hover:bg-gray-50">
+                        <td className="py-3 px-4 font-medium">{index + 1}</td>
                         <td className="py-3 px-4">{new Date(transaction.date).toLocaleDateString('vi-VN')}</td>
                         <td className="py-3 px-4">
                           <span className={`px-2 py-1 rounded-full text-xs font-medium ${

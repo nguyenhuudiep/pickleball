@@ -1,4 +1,4 @@
-const { Tournament, TournamentParticipant, Member } = require('../models');
+const { Tournament, TournamentParticipant, Member, MemberSkillHistory } = require('../models');
 const { withMongoId } = require('../utils/apiMapper');
 
 const tournamentInclude = [
@@ -44,6 +44,75 @@ const normalizeParticipantsPayload = (participants = []) => {
       };
     })
     .filter(Boolean);
+};
+
+const getRankBonus = (rank) => {
+  const normalizedRank = Number(rank);
+  if (normalizedRank === 1) return 1;
+  if (normalizedRank === 2) return 0.5;
+  return 0;
+};
+
+const roundDelta = (value) => {
+  const rounded = Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+  return Object.is(rounded, -0) ? 0 : rounded;
+};
+
+const getBonusMap = (participants = []) => {
+  const bonusMap = new Map();
+
+  for (const participant of participants) {
+    const memberId = Number(participant?.memberId);
+    if (!Number.isFinite(memberId)) {
+      continue;
+    }
+
+    const bonus = getRankBonus(participant?.rank);
+    if (!bonus) {
+      continue;
+    }
+
+    bonusMap.set(memberId, roundDelta((bonusMap.get(memberId) || 0) + bonus));
+  }
+
+  return bonusMap;
+};
+
+const applyTournamentSkillAdjustments = async ({ tournamentId, previousParticipants = [], nextParticipants = [], transaction }) => {
+  const previousBonusMap = getBonusMap(previousParticipants);
+  const nextBonusMap = getBonusMap(nextParticipants);
+  const memberIds = new Set([...previousBonusMap.keys(), ...nextBonusMap.keys()]);
+  const historyRows = [];
+
+  for (const memberId of memberIds) {
+    const previousBonus = previousBonusMap.get(memberId) || 0;
+    const nextBonus = nextBonusMap.get(memberId) || 0;
+    const delta = roundDelta(nextBonus - previousBonus);
+
+    if (!delta) {
+      continue;
+    }
+
+    await Member.increment(
+      { skillLevel: delta },
+      {
+        where: { id: memberId },
+        transaction,
+      }
+    );
+
+    historyRows.push({
+      memberId,
+      delta,
+      reason: `Điều chỉnh điểm theo xếp hạng giải đấu #${tournamentId}`,
+      sourceType: 'tournament_rank',
+      sourceId: String(tournamentId),
+    });
+  }
+
+  if (historyRows.length > 0) {
+    await MemberSkillHistory.bulkCreate(historyRows, { transaction });
+  }
 };
 
 const toNumber = (value) => {
@@ -189,29 +258,53 @@ exports.createTournament = async (req, res) => {
     const finance = getFinanceTotals(financeItems);
     const resolvedSponsorship = finance.normalized.length > 0 ? finance.incomeTotal : toNumber(sponsorshipAmount);
     const resolvedExpense = finance.normalized.length > 0 ? finance.expenseTotal : toNumber(expenseAmount);
+    const transaction = await Tournament.sequelize.transaction();
 
-    const tournament = await Tournament.create({
-      name,
-      date,
-      location,
-      description,
-      expenseAmount: resolvedExpense,
-      sponsorshipAmount: resolvedSponsorship,
-      financeItemsJson: JSON.stringify(finance.normalized),
-    });
+    let tournament;
+    let incomingParticipants;
 
-    const incomingParticipants = normalizeParticipantsPayload(participants);
-    for (const participant of incomingParticipants) {
-      await TournamentParticipant.create({
+    try {
+      tournament = await Tournament.create(
+        {
+          name,
+          date,
+          location,
+          description,
+          expenseAmount: resolvedExpense,
+          sponsorshipAmount: resolvedSponsorship,
+          financeItemsJson: JSON.stringify(finance.normalized),
+        },
+        { transaction }
+      );
+
+      incomingParticipants = normalizeParticipantsPayload(participants);
+      for (const participant of incomingParticipants) {
+        await TournamentParticipant.create(
+          {
+            tournamentId: tournament.id,
+            memberId: participant.memberId,
+            partnerMemberId: participant.partnerMemberId,
+            rank: participant.rank || null,
+            result: participant.result || '',
+            isDoublesParticipant: Boolean(participant.isDoublesParticipant),
+            feePaid: Boolean(participant.feePaid),
+            feeAmount: Number(participant.feeAmount || 0),
+          },
+          { transaction }
+        );
+      }
+
+      await applyTournamentSkillAdjustments({
         tournamentId: tournament.id,
-        memberId: participant.memberId,
-        partnerMemberId: participant.partnerMemberId,
-        rank: participant.rank || null,
-        result: participant.result || '',
-        isDoublesParticipant: Boolean(participant.isDoublesParticipant),
-        feePaid: Boolean(participant.feePaid),
-        feeAmount: Number(participant.feeAmount || 0),
+        previousParticipants: [],
+        nextParticipants: incomingParticipants,
+        transaction,
       });
+
+      await transaction.commit();
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
     }
 
     const fullTournament = await Tournament.findByPk(tournament.id, {
@@ -237,30 +330,58 @@ exports.updateTournament = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Giải đấu không tồn tại' });
     }
 
-    await tournament.update({
-      name,
-      date,
-      location,
-      description,
-      expenseAmount: resolvedExpense,
-      sponsorshipAmount: resolvedSponsorship,
-      financeItemsJson: JSON.stringify(finance.normalized),
-    });
+    const transaction = await Tournament.sequelize.transaction();
 
-    await TournamentParticipant.destroy({ where: { tournamentId: tournament.id } });
-
-    const incomingParticipants = normalizeParticipantsPayload(participants);
-    for (const participant of incomingParticipants) {
-      await TournamentParticipant.create({
-        tournamentId: tournament.id,
-        memberId: participant.memberId,
-        partnerMemberId: participant.partnerMemberId,
-        rank: participant.rank || null,
-        result: participant.result || '',
-        isDoublesParticipant: Boolean(participant.isDoublesParticipant),
-        feePaid: Boolean(participant.feePaid),
-        feeAmount: Number(participant.feeAmount || 0),
+    try {
+      const previousParticipants = await TournamentParticipant.findAll({
+        where: { tournamentId: tournament.id },
+        attributes: ['memberId', 'rank'],
+        transaction,
       });
+
+      await tournament.update(
+        {
+          name,
+          date,
+          location,
+          description,
+          expenseAmount: resolvedExpense,
+          sponsorshipAmount: resolvedSponsorship,
+          financeItemsJson: JSON.stringify(finance.normalized),
+        },
+        { transaction }
+      );
+
+      await TournamentParticipant.destroy({ where: { tournamentId: tournament.id }, transaction });
+
+      const incomingParticipants = normalizeParticipantsPayload(participants);
+      for (const participant of incomingParticipants) {
+        await TournamentParticipant.create(
+          {
+            tournamentId: tournament.id,
+            memberId: participant.memberId,
+            partnerMemberId: participant.partnerMemberId,
+            rank: participant.rank || null,
+            result: participant.result || '',
+            isDoublesParticipant: Boolean(participant.isDoublesParticipant),
+            feePaid: Boolean(participant.feePaid),
+            feeAmount: Number(participant.feeAmount || 0),
+          },
+          { transaction }
+        );
+      }
+
+      await applyTournamentSkillAdjustments({
+        tournamentId: tournament.id,
+        previousParticipants,
+        nextParticipants: incomingParticipants,
+        transaction,
+      });
+
+      await transaction.commit();
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
     }
 
     const fullTournament = await Tournament.findByPk(tournament.id, {
@@ -302,20 +423,44 @@ exports.updateTournamentParticipants = async (req, res) => {
     }
 
     const incomingParticipants = normalizeParticipantsPayload(req.body?.participants);
+    const transaction = await Tournament.sequelize.transaction();
 
-    await TournamentParticipant.destroy({ where: { tournamentId: tournament.id } });
-
-    for (const participant of incomingParticipants) {
-      await TournamentParticipant.create({
-        tournamentId: tournament.id,
-        memberId: participant.memberId,
-        partnerMemberId: participant.partnerMemberId,
-        rank: participant.rank,
-        result: participant.result,
-        isDoublesParticipant: participant.isDoublesParticipant,
-        feePaid: participant.feePaid,
-        feeAmount: participant.feeAmount,
+    try {
+      const previousParticipants = await TournamentParticipant.findAll({
+        where: { tournamentId: tournament.id },
+        attributes: ['memberId', 'rank'],
+        transaction,
       });
+
+      await TournamentParticipant.destroy({ where: { tournamentId: tournament.id }, transaction });
+
+      for (const participant of incomingParticipants) {
+        await TournamentParticipant.create(
+          {
+            tournamentId: tournament.id,
+            memberId: participant.memberId,
+            partnerMemberId: participant.partnerMemberId,
+            rank: participant.rank,
+            result: participant.result,
+            isDoublesParticipant: participant.isDoublesParticipant,
+            feePaid: participant.feePaid,
+            feeAmount: participant.feeAmount,
+          },
+          { transaction }
+        );
+      }
+
+      await applyTournamentSkillAdjustments({
+        tournamentId: tournament.id,
+        previousParticipants,
+        nextParticipants: incomingParticipants,
+        transaction,
+      });
+
+      await transaction.commit();
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
     }
 
     const fullTournament = await Tournament.findByPk(tournament.id, {

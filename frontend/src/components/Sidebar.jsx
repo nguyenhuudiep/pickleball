@@ -2,10 +2,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { BarChart3, Users, Grid3X3, Calendar, DollarSign, Home, Settings, Trophy } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
-export const Sidebar = () => {
-  const location = useLocation();
-  const { user, hasPermission } = useAuth();
-
+export const getMenuItems = (user, hasPermission) => {
   const memberMenuItems = [
     { label: 'Đặt Sân', icon: Calendar, href: '/bookings' },
     { label: 'Giải Đấu', icon: Trophy, href: '/tournaments' },
@@ -22,7 +19,13 @@ export const Sidebar = () => {
     { label: 'Quản Lý Người Dùng', icon: Settings, href: '/users', visible: hasPermission('manage_users') },
   ].filter((item) => item.visible !== false);
 
-  const menuItems = user?.role === 'member' ? memberMenuItems : adminMenuItems;
+  return user?.role === 'member' ? memberMenuItems : adminMenuItems;
+};
+
+export const Sidebar = () => {
+  const location = useLocation();
+  const { user, hasPermission } = useAuth();
+  const menuItems = getMenuItems(user, hasPermission);
 
   return (
     <aside className="hidden md:block w-64 bg-gray-900 text-white min-h-screen">

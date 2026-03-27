@@ -73,9 +73,11 @@ export const userAPI = {
 // Member services
 export const memberAPI = {
   getAll: () => API.get('/members'),
+  getVersion: () => API.get('/members/version', { params: { t: Date.now() } }),
   getPublic: () => API.get('/members/public'),
   create: (data) => API.post('/members', data),
   getById: (id) => API.get(`/members/${id}`),
+  getSkillHistory: (id) => API.get(`/members/${id}/skill-history`),
   update: (id, data) => API.put(`/members/${id}`, data),
   delete: (id) => API.delete(`/members/${id}`),
 };

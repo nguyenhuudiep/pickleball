@@ -1,10 +1,24 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Layout } from '../components/Layout';
 import { AppSelect } from '../components/AppSelect';
 import { bookingAPI, memberAPI, courtAPI } from '../services/api';
 import { Plus, Edit2, Trash2 } from 'lucide-react';
 
 const getSelectedOption = (options, value) => options.find((option) => option.value === value) || null;
+const AUTO_REFRESH_INTERVAL_MS = 15000;
+
+const buildBookingsSignature = (bookings = []) => JSON.stringify(
+  (Array.isArray(bookings) ? bookings : []).map((booking) => [
+    booking._id,
+    booking.memberId?._id || booking.memberId,
+    booking.courtId?._id || booking.courtId,
+    booking.bookingDate,
+    booking.startTime,
+    booking.endTime,
+    booking.status,
+    booking.updatedAt,
+  ])
+);
 
 export const BookingsPage = () => {
   const [bookings, setBookings] = useState([]);
@@ -21,25 +35,66 @@ export const BookingsPage = () => {
     duration: '',
     price: '',
   });
+  const isFetchingRef = useRef(false);
+  const lastSignatureRef = useRef('');
 
   useEffect(() => {
     fetchData();
   }, []);
 
-  const fetchData = async () => {
+  useEffect(() => {
+    const refreshData = () => fetchData({ silent: true });
+    const handleFocus = () => fetchData({ silent: true });
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        fetchData({ silent: true });
+      }
+    };
+
+    const intervalId = window.setInterval(refreshData, AUTO_REFRESH_INTERVAL_MS);
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, []);
+
+  const fetchData = async ({ silent = false } = {}) => {
+    if (isFetchingRef.current) {
+      return;
+    }
+
+    isFetchingRef.current = true;
+
+    if (!silent) {
+      setLoading(true);
+    }
+
     try {
       const [bookRes, memRes, courtRes] = await Promise.all([
         bookingAPI.getAll(),
         memberAPI.getAll(),
         courtAPI.getAll(),
       ]);
-      setBookings(bookRes.data.bookings);
+      const nextBookings = bookRes.data.bookings || [];
+      const nextSignature = buildBookingsSignature(nextBookings);
+      if (nextSignature !== lastSignatureRef.current) {
+        lastSignatureRef.current = nextSignature;
+        setBookings(nextBookings);
+      }
       setMembers(memRes.data.members);
       setCourts(courtRes.data.courts);
     } catch (error) {
       console.error('Error fetching bookings:', error);
+    } finally {
+      if (!silent) {
+        setLoading(false);
+      }
+      isFetchingRef.current = false;
     }
-    setLoading(false);
   };
 
   const handleSubmit = async (e) => {
@@ -191,6 +246,7 @@ export const BookingsPage = () => {
             <table className="w-full">
               <thead>
                 <tr className="border-b">
+                  <th className="text-left py-3 px-4">STT</th>
                   <th className="text-left py-3 px-4">Thành Viên</th>
                   <th className="text-left py-3 px-4">Sân</th>
                   <th className="text-left py-3 px-4">Ngày</th>
@@ -202,8 +258,9 @@ export const BookingsPage = () => {
                 </tr>
               </thead>
               <tbody>
-                {bookings.map((booking) => (
+                {bookings.map((booking, index) => (
                   <tr key={booking._id} className="border-b hover:bg-gray-50">
+                    <td className="py-3 px-4 font-medium">{index + 1}</td>
                     <td className="py-3 px-4">{booking.memberId?.name}</td>
                     <td className="py-3 px-4">{booking.courtId?.name}</td>
                     <td className="py-3 px-4">{new Date(booking.bookingDate).toLocaleDateString()}</td>

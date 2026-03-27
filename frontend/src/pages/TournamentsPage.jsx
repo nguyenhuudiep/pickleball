@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Layout } from '../components/Layout';
 import { useAuth } from '../context/AuthContext';
@@ -24,6 +24,19 @@ const formatCurrencyVND = (value) => {
   }).format(Number.isFinite(amount) ? amount : 0);
 };
 
+const AUTO_REFRESH_INTERVAL_MS = 15000;
+
+const buildTournamentsSignature = (tournaments = []) => JSON.stringify(
+  (Array.isArray(tournaments) ? tournaments : []).map((item) => [
+    item._id,
+    item.name,
+    item.date,
+    item.location,
+    item.participants?.length || 0,
+    item.updatedAt,
+  ])
+);
+
 export const TournamentsPage = () => {
   const { hasPermission } = useAuth();
   const canManageTournaments = hasPermission('manage_tournaments');
@@ -34,19 +47,61 @@ export const TournamentsPage = () => {
   const [editingId, setEditingId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [formData, setFormData] = useState(getDefaultFormData());
+  const isFetchingRef = useRef(false);
+  const lastSignatureRef = useRef('');
 
   useEffect(() => {
     fetchData();
   }, []);
 
-  const fetchData = async () => {
+  useEffect(() => {
+    const refreshData = () => fetchData({ silent: true });
+    const handleFocus = () => fetchData({ silent: true });
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        fetchData({ silent: true });
+      }
+    };
+
+    const intervalId = window.setInterval(refreshData, AUTO_REFRESH_INTERVAL_MS);
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, []);
+
+  const fetchData = async ({ silent = false } = {}) => {
+    if (isFetchingRef.current) {
+      return;
+    }
+
+    isFetchingRef.current = true;
+
+    if (!silent) {
+      setLoading(true);
+    }
+
     try {
       const tournamentsRes = await tournamentAPI.getAll();
-      setTournaments(tournamentsRes.data.tournaments || []);
+      const nextTournaments = tournamentsRes.data.tournaments || [];
+      const nextSignature = buildTournamentsSignature(nextTournaments);
+
+      if (nextSignature !== lastSignatureRef.current) {
+        lastSignatureRef.current = nextSignature;
+        setTournaments(nextTournaments);
+      }
     } catch (error) {
       console.error('Error fetching tournaments:', error);
+    } finally {
+      if (!silent) {
+        setLoading(false);
+      }
+      isFetchingRef.current = false;
     }
-    setLoading(false);
   };
 
   const handleSubmit = async (e) => {
@@ -214,6 +269,7 @@ export const TournamentsPage = () => {
             <table className="w-full">
               <thead>
                 <tr className="border-b">
+                  <th className="text-left py-3 px-4">STT</th>
                   <th className="text-left py-3 px-4">Tên Giải</th>
                   <th className="text-left py-3 px-4">Ngày</th>
                   <th className="text-left py-3 px-4">Địa Điểm</th>
@@ -223,8 +279,9 @@ export const TournamentsPage = () => {
                 </tr>
               </thead>
               <tbody>
-                {tournaments.map((tournament) => (
+                {tournaments.map((tournament, index) => (
                   <tr key={tournament._id} className="border-b hover:bg-gray-50">
+                    <td className="py-3 px-4 font-medium">{index + 1}</td>
                     <td className="py-3 px-4">{tournament.name}</td>
                     <td className="py-3 px-4">{new Date(tournament.date).toLocaleDateString('vi-VN')}</td>
                     <td className="py-3 px-4">{tournament.location || '-'}</td>

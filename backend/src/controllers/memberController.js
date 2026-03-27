@@ -1,4 +1,6 @@
 const Member = require('../models/Member');
+const MemberSkillHistory = require('../models/MemberSkillHistory');
+const { fn, col } = require('sequelize');
 const { withMongoId, withMongoIdList } = require('../utils/apiMapper');
 
 const normalizeOptionalString = (value) => {
@@ -7,10 +9,66 @@ const normalizeOptionalString = (value) => {
   return trimmed === '' ? undefined : trimmed;
 };
 
+const getMembersVersionPayload = async () => {
+  const [memberAggregate, historyAggregate] = await Promise.all([
+    Member.findOne({
+      attributes: [
+        [fn('COUNT', col('id')), 'total'],
+        [fn('MAX', col('updatedAt')), 'lastUpdatedAt'],
+        [fn('SUM', col('skillLevel')), 'skillLevelSum'],
+      ],
+      raw: true,
+    }),
+    MemberSkillHistory.findOne({
+      attributes: [
+        [fn('COUNT', col('id')), 'historyTotal'],
+        [fn('MAX', col('createdAt')), 'lastHistoryAt'],
+      ],
+      raw: true,
+    }),
+  ]);
+
+  const total = Number(memberAggregate?.total || 0);
+  const skillLevelSum = Number(memberAggregate?.skillLevelSum || 0);
+  const historyTotal = Number(historyAggregate?.historyTotal || 0);
+
+  const memberUpdatedAt = memberAggregate?.lastUpdatedAt ? new Date(memberAggregate.lastUpdatedAt) : null;
+  const historyUpdatedAt = historyAggregate?.lastHistoryAt ? new Date(historyAggregate.lastHistoryAt) : null;
+  const parsedDate = [memberUpdatedAt, historyUpdatedAt]
+    .filter((item) => item && !Number.isNaN(item.getTime()))
+    .sort((first, second) => second.getTime() - first.getTime())[0] || null;
+  const lastUpdatedAt = parsedDate && !Number.isNaN(parsedDate.getTime()) ? parsedDate.toISOString() : null;
+
+  return {
+    total,
+    lastUpdatedAt,
+    historyTotal,
+    version: `${total}:${historyTotal}:${skillLevelSum.toFixed(2)}:${lastUpdatedAt || '0'}`,
+  };
+};
+
 exports.getMembers = async (req, res) => {
   try {
     const members = await Member.findAll({ order: [['createdAt', 'DESC']] });
-    res.status(200).json({ success: true, members: withMongoIdList(members) });
+    const versionPayload = await getMembersVersionPayload();
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
+    res.set('Surrogate-Control', 'no-store');
+    res.status(200).json({ success: true, members: withMongoIdList(members), ...versionPayload });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.getMembersVersion = async (req, res) => {
+  try {
+    const versionPayload = await getMembersVersionPayload();
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
+    res.set('Surrogate-Control', 'no-store');
+    res.status(200).json({ success: true, ...versionPayload });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -60,6 +118,24 @@ exports.getMemberById = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Member not found' });
     }
     res.status(200).json({ success: true, member: withMongoId(member) });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.getMemberSkillHistory = async (req, res) => {
+  try {
+    const member = await Member.findByPk(req.params.id);
+    if (!member) {
+      return res.status(404).json({ success: false, message: 'Member not found' });
+    }
+
+    const histories = await MemberSkillHistory.findAll({
+      where: { memberId: member.id },
+      order: [['createdAt', 'DESC']],
+    });
+
+    res.status(200).json({ success: true, histories: withMongoIdList(histories) });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

@@ -5,6 +5,7 @@ const Booking = require('./Booking');
 const Financial = require('./Financial');
 const Tournament = require('./Tournament');
 const TournamentParticipant = require('./TournamentParticipant');
+const MemberSkillHistory = require('./MemberSkillHistory');
 
 Member.hasMany(Booking, { foreignKey: 'memberId', as: 'bookings', onDelete: 'CASCADE' });
 Booking.belongsTo(Member, { foreignKey: 'memberId', as: 'member' });
@@ -25,6 +26,9 @@ TournamentParticipant.belongsTo(Tournament, { foreignKey: 'tournamentId' });
 Member.hasMany(TournamentParticipant, { foreignKey: 'memberId', as: 'tournamentEntries' });
 TournamentParticipant.belongsTo(Member, { foreignKey: 'memberId', as: 'member' });
 
+Member.hasMany(MemberSkillHistory, { foreignKey: 'memberId', as: 'skillHistories', onDelete: 'CASCADE' });
+MemberSkillHistory.belongsTo(Member, { foreignKey: 'memberId', as: 'member' });
+
 module.exports = {
   User,
   Member,
@@ -33,4 +37,5 @@ module.exports = {
   Financial,
   Tournament,
   TournamentParticipant,
+  MemberSkillHistory,
 };
