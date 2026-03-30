@@ -1,6 +1,7 @@
 const Member = require('../models/Member');
 const MemberSkillHistory = require('../models/MemberSkillHistory');
-const { fn, col } = require('sequelize');
+const { QueryTypes } = require('sequelize');
+const { sequelize } = require('../config/database');
 const { withMongoId, withMongoIdList } = require('../utils/apiMapper');
 
 const normalizeOptionalString = (value) => {
@@ -10,23 +11,30 @@ const normalizeOptionalString = (value) => {
 };
 
 const getMembersVersionPayload = async () => {
-  const [memberAggregate, historyAggregate] = await Promise.all([
-    Member.findOne({
-      attributes: [
-        [fn('COUNT', col('id')), 'total'],
-        [fn('MAX', col('updatedAt')), 'lastUpdatedAt'],
-        [fn('SUM', col('skillLevel')), 'skillLevelSum'],
-      ],
-      raw: true,
-    }),
-    MemberSkillHistory.findOne({
-      attributes: [
-        [fn('COUNT', col('id')), 'historyTotal'],
-        [fn('MAX', col('createdAt')), 'lastHistoryAt'],
-      ],
-      raw: true,
-    }),
+  const [memberAggregateRows, historyAggregateRows] = await Promise.all([
+    sequelize.query(
+      `
+      SELECT
+        COUNT([id]) AS [total],
+        MAX([updatedAt]) AS [lastUpdatedAt],
+        SUM([skillLevel]) AS [skillLevelSum]
+      FROM [members]
+      `,
+      { type: QueryTypes.SELECT }
+    ),
+    sequelize.query(
+      `
+      SELECT
+        COUNT([id]) AS [historyTotal],
+        MAX([createdAt]) AS [lastHistoryAt]
+      FROM [member_skill_histories]
+      `,
+      { type: QueryTypes.SELECT }
+    ),
   ]);
+
+  const memberAggregate = memberAggregateRows?.[0] || null;
+  const historyAggregate = historyAggregateRows?.[0] || null;
 
   const total = Number(memberAggregate?.total || 0);
   const skillLevelSum = Number(memberAggregate?.skillLevelSum || 0);
