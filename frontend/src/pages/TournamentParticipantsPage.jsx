@@ -283,6 +283,11 @@ export const TournamentParticipantsPage = () => {
     });
   }, [pairs, members]);
 
+  const completedFeePairsCount = useMemo(
+    () => pairs.reduce((count, pair) => count + (pair.feePaid ? 1 : 0), 0),
+    [pairs]
+  );
+
   const totalCollectedAmount = useMemo(() => {
     return pairs.reduce((total, pair) => {
       if (!pair.feePaid) return total;
@@ -645,7 +650,12 @@ export const TournamentParticipantsPage = () => {
 
         {pairedParticipants.length > 0 && (
           <div className="card space-y-2">
-            <h2 className="text-lg font-semibold text-gray-800">Các Cặp VĐV Đã Ghép ({pairedParticipants.length} cặp)</h2>
+            <h2 className="text-lg font-semibold text-gray-800">
+              Các Cặp VĐV Đã Ghép ({pairedParticipants.length} cặp)
+            </h2>
+            <p className="text-sm text-green-700">
+              Cặp VĐV hoàn thành lệ phí: {completedFeePairsCount}/{pairedParticipants.length}
+            </p>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
               {pairedParticipants.map((pair, index) => (
                 <div key={`${pair.leftName}-${pair.rightName}-${index}`} className="border rounded-lg px-3 py-2 bg-gray-50 text-sm text-gray-800 flex items-start justify-between gap-2">
