@@ -158,6 +158,29 @@ const ensureTournamentFinancialColumns = async () => {
   `);
 };
 
+const ensureBookingColumns = async () => {
+  await sequelize.query(`
+    IF COL_LENGTH('bookings', 'bookerName') IS NULL
+    BEGIN
+      ALTER TABLE [bookings]
+      ADD [bookerName] NVARCHAR(255) NOT NULL CONSTRAINT [DF_bookings_bookerName] DEFAULT N'Khách vãng lai';
+    END
+  `);
+
+  await sequelize.query(`
+    IF EXISTS (
+      SELECT 1
+      FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_NAME = 'bookings'
+        AND COLUMN_NAME = 'memberId'
+        AND IS_NULLABLE = 'NO'
+    )
+    BEGIN
+      ALTER TABLE [bookings] ALTER COLUMN [memberId] INT NULL;
+    END
+  `);
+};
+
 const connectDB = async () => {
   try {
     await sequelize.authenticate();
@@ -169,6 +192,7 @@ const connectDB = async () => {
     await normalizeDateTimeColumns();
     await ensureTournamentParticipantColumns();
     await ensureTournamentFinancialColumns();
+    await ensureBookingColumns();
 
     const adminCount = await User.count({ where: { role: 'admin' } });
     if (adminCount === 0) {

@@ -11,6 +11,11 @@ const Booking = sequelize.define(
     },
     memberId: {
       type: DataTypes.INTEGER,
+      allowNull: true,
+      defaultValue: null,
+    },
+    bookerName: {
+      type: DataTypes.STRING,
       allowNull: false,
     },
     courtId: {
