@@ -9,6 +9,9 @@ const getSelectedOption = (options, value) => options.find((option) => option.va
 const AUTO_REFRESH_INTERVAL_MS = 15000;
 const PAGE_SIZE = 10;
 const normalizeId = (value) => (value === null || value === undefined || value === '' ? '' : String(value));
+const OFF_PEAK_HOURLY_PRICE = 100000;
+const PEAK_HOURLY_PRICE = 120000;
+const PEAK_START_HOUR = 17;
 const statusFilterOptions = [
   { value: '', label: 'Tất cả trạng thái' },
   { value: 'pending', label: 'Chờ xác nhận' },
@@ -69,6 +72,31 @@ const calculateDurationHours = (bookingDate, startTime, endTime) => {
   return Number.isInteger(hours) ? String(hours) : String(Number(hours.toFixed(2)));
 };
 
+const calculatePriceByTimeRange = (bookingDate, startTime, endTime) => {
+  const startDateTime = buildDateTime(bookingDate, startTime);
+  const endDateTime = buildDateTime(bookingDate, endTime);
+  if (!startDateTime || !endDateTime || endDateTime <= startDateTime) {
+    return '';
+  }
+
+  const peakBoundary = new Date(startDateTime);
+  peakBoundary.setHours(PEAK_START_HOUR, 0, 0, 0);
+
+  if (endDateTime <= peakBoundary) {
+    const hours = (endDateTime.getTime() - startDateTime.getTime()) / (1000 * 60 * 60);
+    return Math.round(hours * OFF_PEAK_HOURLY_PRICE);
+  }
+
+  if (startDateTime >= peakBoundary) {
+    const hours = (endDateTime.getTime() - startDateTime.getTime()) / (1000 * 60 * 60);
+    return Math.round(hours * PEAK_HOURLY_PRICE);
+  }
+
+  const beforePeakHours = (peakBoundary.getTime() - startDateTime.getTime()) / (1000 * 60 * 60);
+  const afterPeakHours = (endDateTime.getTime() - peakBoundary.getTime()) / (1000 * 60 * 60);
+  return Math.round((beforePeakHours * OFF_PEAK_HOURLY_PRICE) + (afterPeakHours * PEAK_HOURLY_PRICE));
+};
+
 const formatCurrencyVND = (value) => {
   const amount = Number(value || 0);
   if (!Number.isFinite(amount) || amount <= 0) return '';
@@ -115,6 +143,7 @@ export const BookingsPage = () => {
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [editingBookingId, setEditingBookingId] = useState(null);
   const [courts, setCourts] = useState([]);
   const [listFilters, setListFilters] = useState({
     bookingDate: getNowContext().today,
@@ -155,6 +184,14 @@ export const BookingsPage = () => {
     setFormData((previous) => {
       if (previous.duration === nextDuration) return previous;
       return { ...previous, duration: nextDuration };
+    });
+  }, [formData.bookingDate, formData.startTime, formData.endTime]);
+
+  useEffect(() => {
+    const nextPrice = calculatePriceByTimeRange(formData.bookingDate, formData.startTime, formData.endTime);
+    setFormData((previous) => {
+      if (previous.price === nextPrice) return previous;
+      return { ...previous, price: nextPrice };
     });
   }, [formData.bookingDate, formData.startTime, formData.endTime]);
 
@@ -232,25 +269,35 @@ export const BookingsPage = () => {
     }
 
     try {
-      await bookingAPI.create({
+      const payload = {
         ...formData,
         courtId: Number(formData.courtId),
-      });
+      };
+
+      if (editingBookingId) {
+        await bookingAPI.update(editingBookingId, payload);
+      } else {
+        await bookingAPI.create(payload);
+      }
+
       setFormData(getDefaultFormData());
+      setEditingBookingId(null);
       setShowForm(false);
       fetchData();
     } catch (error) {
       console.error('Error creating booking:', error);
+      alert(error.response?.data?.message || 'Không thể đặt sân. Vui lòng thử lại.');
     }
   };
 
-  const handleDelete = async (id) => {
-    if (window.confirm('Bạn có chắc chắn muốn hủy đặt sân này?')) {
+  const handleCancelBooking = async (id) => {
+    if (window.confirm('Bạn có chắc chắn muốn hủy lịch đặt sân này?')) {
       try {
-        await bookingAPI.delete(id);
+        await bookingAPI.update(id, { status: 'cancelled' });
         fetchData();
       } catch (error) {
-        console.error('Error deleting booking:', error);
+        console.error('Error cancelling booking:', error);
+        alert(error.response?.data?.message || 'Không thể hủy lịch đặt sân');
       }
     }
   };
@@ -263,6 +310,26 @@ export const BookingsPage = () => {
       console.error('Error confirming booking:', error);
       alert(error.response?.data?.message || 'Không thể xác nhận lịch đặt sân');
     }
+  };
+
+  const handleEditBooking = (booking) => {
+    setFormData({
+      bookerName: booking.bookerName || booking.memberId?.name || '',
+      courtId: normalizeId(booking.courtId?._id || booking.courtId?.id || booking.courtId),
+      bookingDate: extractDateValue(booking.bookingDate),
+      startTime: String(booking.startTime || '').slice(0, 5),
+      endTime: String(booking.endTime || '').slice(0, 5),
+      duration: String(booking.duration || ''),
+      price: Number(booking.price || 0) || '',
+    });
+    setEditingBookingId(booking._id);
+    setShowForm(true);
+  };
+
+  const handleCancelForm = () => {
+    setShowForm(false);
+    setEditingBookingId(null);
+    setFormData(getDefaultFormData());
   };
 
   const courtOptions = [
@@ -323,7 +390,13 @@ export const BookingsPage = () => {
         <div className="flex justify-between items-center">
           <h1 className="text-3xl font-bold text-gray-800">Đặt Sân</h1>
           <button
-            onClick={() => setShowForm(!showForm)}
+            onClick={() => {
+              if (showForm) {
+                handleCancelForm();
+                return;
+              }
+              setShowForm(true);
+            }}
             className="btn btn-primary flex items-center gap-2"
           >
             <Plus size={20} />
@@ -334,6 +407,11 @@ export const BookingsPage = () => {
         {showForm && (
           <div className="card">
             <form onSubmit={handleSubmit} className="space-y-4">
+              {editingBookingId && (
+                <div className="rounded border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800">
+                  Bạn đang chỉnh sửa lịch đặt sân.
+                </div>
+              )}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Tên Người Đặt</label>
@@ -399,28 +477,24 @@ export const BookingsPage = () => {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Giá ($)</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Giá (trước 17h: 100.000đ/giờ, sau 17h: 120.000đ/giờ)
+                  </label>
                   <input
                     type="text"
                     inputMode="numeric"
                     value={formatCurrencyVND(formData.price)}
-                    onChange={(e) => {
-                      const rawNumber = Number(String(e.target.value || '').replace(/[^\d]/g, ''));
-                      setFormData({
-                        ...formData,
-                        price: Number.isFinite(rawNumber) && rawNumber > 0 ? rawNumber : '',
-                      });
-                    }}
-                    className="input border-red-400 text-red-700 font-semibold focus:ring-red-500"
+                    className="input border-red-400 text-red-700 font-semibold focus:ring-red-500 bg-gray-50"
+                    readOnly
                     required
                   />
                 </div>
               </div>
               <div className="flex gap-2">
-                <button type="submit" className="btn btn-primary">Lưu Đặt Sân</button>
+                <button type="submit" className="btn btn-primary">{editingBookingId ? 'Lưu Chỉnh Sửa' : 'Lưu Đặt Sân'}</button>
                 <button
                   type="button"
-                  onClick={() => setShowForm(false)}
+                  onClick={handleCancelForm}
                   className="btn btn-secondary"
                 >
                   Hủy
@@ -533,12 +607,17 @@ export const BookingsPage = () => {
                             <CheckCircle2 size={18} />
                           </button>
                         )}
-                        <button className="text-teal-600 hover:text-teal-800 mr-2">
+                        <button
+                          onClick={() => handleEditBooking(booking)}
+                          className="text-teal-600 hover:text-teal-800 mr-2"
+                        >
                           <Edit2 size={18} />
                         </button>
                         <button
-                          onClick={() => handleDelete(booking._id)}
+                          onClick={() => handleCancelBooking(booking._id)}
                           className="text-red-600 hover:text-red-800"
+                          title="Hủy lịch đặt"
+                          disabled={booking.status === 'cancelled' || booking.status === 'completed'}
                         >
                           <Trash2 size={18} />
                         </button>

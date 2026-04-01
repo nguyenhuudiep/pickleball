@@ -12,6 +12,13 @@ const surfaceOptions = [
 
 const getSelectedOption = (options, value) => options.find((option) => option.value === value) || null;
 const AUTO_REFRESH_INTERVAL_MS = 15000;
+const formatCurrencyVND = (value) => `${Number(value || 0).toLocaleString('vi-VN')} ₫`;
+
+const getCourtStatusLabel = (status) => {
+  if (status === 'occupied') return 'Đang sử dụng';
+  if (status === 'maintenance') return 'Bảo trì';
+  return 'Sẵn sàng';
+};
 
 const buildCourtsSignature = (courts = []) => JSON.stringify(
   (Array.isArray(courts) ? courts : []).map((court) => [
@@ -29,6 +36,7 @@ export const CourtsPage = () => {
   const [courts, setCourts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [editingCourtId, setEditingCourtId] = useState(null);
   const [formData, setFormData] = useState({
     name: '',
     courtNumber: '',
@@ -95,13 +103,36 @@ export const CourtsPage = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      await courtAPI.create(formData);
+      if (editingCourtId) {
+        await courtAPI.update(editingCourtId, formData);
+      } else {
+        await courtAPI.create(formData);
+      }
       setFormData({ name: '', courtNumber: '', surface: 'hard', lights: false, hourlyRate: '' });
+      setEditingCourtId(null);
       setShowForm(false);
       fetchCourts();
     } catch (error) {
       console.error('Error creating court:', error);
     }
+  };
+
+  const handleEdit = (court) => {
+    setFormData({
+      name: court.name || '',
+      courtNumber: court.courtNumber || '',
+      surface: court.surface || 'hard',
+      lights: Boolean(court.lights),
+      hourlyRate: court.hourlyRate || '',
+    });
+    setEditingCourtId(court._id);
+    setShowForm(true);
+  };
+
+  const handleCancelForm = () => {
+    setShowForm(false);
+    setEditingCourtId(null);
+    setFormData({ name: '', courtNumber: '', surface: 'hard', lights: false, hourlyRate: '' });
   };
 
   const handleDelete = async (id) => {
@@ -121,7 +152,13 @@ export const CourtsPage = () => {
         <div className="flex justify-between items-center">
           <h1 className="text-3xl font-bold text-gray-800">Sân Chơi</h1>
           <button
-            onClick={() => setShowForm(!showForm)}
+            onClick={() => {
+              if (showForm) {
+                handleCancelForm();
+                return;
+              }
+              setShowForm(true);
+            }}
             className="btn btn-primary flex items-center gap-2"
           >
             <Plus size={20} />
@@ -129,9 +166,18 @@ export const CourtsPage = () => {
           </button>
         </div>
 
+        <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+          Bảng giá tiêu chuẩn: trước 17h là 100.000đ/giờ, từ 17h trở đi là 120.000đ/giờ.
+        </div>
+
         {showForm && (
           <div className="card">
             <form onSubmit={handleSubmit} className="space-y-4">
+              {editingCourtId && (
+                <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                  Bạn đang chỉnh sửa thông tin sân.
+                </div>
+              )}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Tên Sân</label>
@@ -162,7 +208,7 @@ export const CourtsPage = () => {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Giá/Giờ ($)</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Giá/Giờ (VND)</label>
                   <input
                     type="number"
                     value={formData.hourlyRate}
@@ -185,10 +231,10 @@ export const CourtsPage = () => {
                 </label>
               </div>
               <div className="flex gap-2">
-                <button type="submit" className="btn btn-primary">Lưu Sân</button>
+                <button type="submit" className="btn btn-primary">{editingCourtId ? 'Lưu Chỉnh Sửa' : 'Lưu Sân'}</button>
                 <button
                   type="button"
-                  onClick={() => setShowForm(false)}
+                  onClick={handleCancelForm}
                   className="btn btn-secondary"
                 >
                   Hủy
@@ -210,10 +256,16 @@ export const CourtsPage = () => {
                     <p className="text-gray-600 text-sm">Sân #{court.courtNumber}</p>
                   </div>
                   <div className="flex gap-2">
-                    <button className="text-teal-600 hover:text-teal-800">
+                    <button
+                      type="button"
+                      onClick={() => handleEdit(court)}
+                      className="text-teal-600 hover:text-teal-800"
+                      title="Chỉnh sửa sân"
+                    >
                       <Edit2 size={18} />
                     </button>
                     <button
+                      type="button"
                       onClick={() => handleDelete(court._id)}
                       className="text-red-600 hover:text-red-800"
                     >
@@ -223,14 +275,18 @@ export const CourtsPage = () => {
                 </div>
                 <div className="space-y-2 text-sm">
                   <p><span className="font-medium">Mặt Sân:</span> {court.surface}</p>
-                  <p><span className="font-medium">Giá:</span> ${court.hourlyRate}/giờ</p>
+                  <p><span className="font-medium">Giá:</span> {formatCurrencyVND(court.hourlyRate)}/giờ</p>
                   <p><span className="font-medium">Đèn:</span> {court.lights ? 'Có' : 'Không'}</p>
                   <p>
                     <span className="font-medium">Trạng Thái:</span> 
                     <span className={`ml-2 px-2 py-1 rounded text-xs ${
-                      court.status === 'available' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+                      court.status === 'available'
+                        ? 'bg-green-100 text-green-800'
+                        : court.status === 'occupied'
+                          ? 'bg-amber-100 text-amber-800'
+                          : 'bg-gray-100 text-gray-800'
                     }`}>
-                      {court.status}
+                      {getCourtStatusLabel(court.status)}
                     </span>
                   </p>
                 </div>
