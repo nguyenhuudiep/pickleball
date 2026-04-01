@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Layout } from '../components/Layout';
 import { AppSelect } from '../components/AppSelect';
 import { dashboardAPI, financialAPI } from '../services/api';
@@ -28,6 +28,13 @@ const reportTypeOptions = [
 
 const getSelectedOption = (options, value) => options.find((option) => option.value === value) || null;
 const formatCurrency = (value) => `${Number(value || 0).toLocaleString('en-US')} ₫`;
+const PAGE_SIZE = 10;
+
+const sortMonthlyDataDesc = (items) => {
+  if (!Array.isArray(items)) return [];
+
+  return [...items].sort((left, right) => String(right?._id || '').localeCompare(String(left?._id || '')));
+};
 
 export const ReportsPage = () => {
   const [reportType, setReportType] = useState('monthly');
@@ -38,9 +45,23 @@ export const ReportsPage = () => {
   const [financialStats, setFinancialStats] = useState(null);
   const [monthlyData, setMonthlyData] = useState([]);
   const [transactions, setTransactions] = useState([]);
+  const [monthlyPage, setMonthlyPage] = useState(1);
+  const [transactionsPage, setTransactionsPage] = useState(1);
 
   const isInvalidDateRange =
     dateFilter.startDate && dateFilter.endDate && dateFilter.endDate < dateFilter.startDate;
+
+  const monthlyTotalPages = Math.max(1, Math.ceil(monthlyData.length / PAGE_SIZE));
+  const paginatedMonthlyData = useMemo(() => {
+    const start = (monthlyPage - 1) * PAGE_SIZE;
+    return monthlyData.slice(start, start + PAGE_SIZE);
+  }, [monthlyData, monthlyPage]);
+
+  const transactionsTotalPages = Math.max(1, Math.ceil(transactions.length / PAGE_SIZE));
+  const paginatedTransactions = useMemo(() => {
+    const start = (transactionsPage - 1) * PAGE_SIZE;
+    return transactions.slice(start, start + PAGE_SIZE);
+  }, [transactions, transactionsPage]);
 
   const handleGenerate = async () => {
     if (isInvalidDateRange) {
@@ -58,7 +79,8 @@ export const ReportsPage = () => {
           expenses: data.expenses || 0,
           profit: data.profit || 0,
         });
-        setMonthlyData(data.monthlyData || []);
+        setMonthlyData(sortMonthlyDataDesc(data.monthlyData));
+        setMonthlyPage(1);
       }
 
       if (reportType === 'members') {
@@ -78,6 +100,7 @@ export const ReportsPage = () => {
           profit: statsRes.data.profit || 0,
         });
         setTransactions(transactionsRes.data.financials || []);
+        setTransactionsPage(1);
       }
 
       setGenerated(true);
@@ -97,6 +120,8 @@ export const ReportsPage = () => {
     setFinancialStats(null);
     setMonthlyData([]);
     setTransactions([]);
+    setMonthlyPage(1);
+    setTransactionsPage(1);
   };
 
   return (
@@ -217,9 +242,9 @@ export const ReportsPage = () => {
                       </td>
                     </tr>
                   ) : (
-                    monthlyData.map((item, index) => (
+                    paginatedMonthlyData.map((item, index) => (
                       <tr key={item._id} className="border-b hover:bg-gray-50">
-                        <td className="py-3 px-4 font-medium">{index + 1}</td>
+                        <td className="py-3 px-4 font-medium">{(monthlyPage - 1) * PAGE_SIZE + index + 1}</td>
                         <td className="py-3 px-4">{item._id}</td>
                         <td className="py-3 px-4 text-green-700">{formatCurrency(item.income)}</td>
                         <td className="py-3 px-4 text-red-700">{formatCurrency(item.expense)}</td>
@@ -229,6 +254,30 @@ export const ReportsPage = () => {
                   )}
                 </tbody>
               </table>
+
+              {monthlyData.length > PAGE_SIZE && (
+                <div className="flex items-center justify-between px-4 py-3 border-t bg-gray-50">
+                  <p className="text-sm text-gray-600">Trang {monthlyPage}/{monthlyTotalPages}</p>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={() => setMonthlyPage((prev) => Math.max(1, prev - 1))}
+                      disabled={monthlyPage === 1}
+                    >
+                      Trước
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={() => setMonthlyPage((prev) => Math.min(monthlyTotalPages, prev + 1))}
+                      disabled={monthlyPage === monthlyTotalPages}
+                    >
+                      Sau
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -272,9 +321,9 @@ export const ReportsPage = () => {
                       </td>
                     </tr>
                   ) : (
-                    transactions.map((transaction, index) => (
+                    paginatedTransactions.map((transaction, index) => (
                       <tr key={transaction._id} className="border-b hover:bg-gray-50">
-                        <td className="py-3 px-4 font-medium">{index + 1}</td>
+                        <td className="py-3 px-4 font-medium">{(transactionsPage - 1) * PAGE_SIZE + index + 1}</td>
                         <td className="py-3 px-4">{new Date(transaction.date).toLocaleDateString('vi-VN')}</td>
                         <td className="py-3 px-4">
                           <span className={`px-2 py-1 rounded-full text-xs font-medium ${
@@ -293,6 +342,30 @@ export const ReportsPage = () => {
                   )}
                 </tbody>
               </table>
+
+              {transactions.length > PAGE_SIZE && (
+                <div className="flex items-center justify-between px-4 py-3 border-t bg-gray-50">
+                  <p className="text-sm text-gray-600">Trang {transactionsPage}/{transactionsTotalPages}</p>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={() => setTransactionsPage((prev) => Math.max(1, prev - 1))}
+                      disabled={transactionsPage === 1}
+                    >
+                      Trước
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={() => setTransactionsPage((prev) => Math.min(transactionsTotalPages, prev + 1))}
+                      disabled={transactionsPage === transactionsTotalPages}
+                    >
+                      Sau
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
